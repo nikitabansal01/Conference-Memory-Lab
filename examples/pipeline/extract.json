@@ -1,0 +1,153 @@
+{
+  "people": [
+    {
+      "id": "person-maya-chen",
+      "name": "Dr. Maya Chen",
+      "role": "speaker",
+      "company": "MedAI",
+      "title": "Head of Evals",
+      "metInPerson": false
+    },
+    {
+      "id": "person-jordan-lee",
+      "name": "Jordan Lee",
+      "role": "attendee",
+      "company": "Series B health startup",
+      "title": "PM",
+      "metInPerson": true,
+      "conversationNotes": "Building ambient scribe; hiring PMs who understand regulated workflows. Connected on LinkedIn, no message yet."
+    },
+    {
+      "id": "person-alex-rivera",
+      "name": "Alex Rivera",
+      "role": "attendee",
+      "title": "ML engineer, ex-FDA",
+      "metInPerson": true,
+      "conversationNotes": "Intro via Sarah Kim. Strong views on consent audit trails and diverse eval datasets."
+    },
+    {
+      "id": "person-sarah-kim",
+      "name": "Sarah Kim",
+      "role": "organizer",
+      "metInPerson": true,
+      "conversationNotes": "Runs monthly SF health-AI mixers. Invited user to speak at next event on agentic workflows in hospitals."
+    }
+  ],
+  "interactions": [
+    {
+      "id": "int-jordan",
+      "personId": "person-jordan-lee",
+      "summary": "Met at coffee line; discussed ambient scribe eval approach using physician edit rate vs generic NLP metrics.",
+      "memorableDetail": "They're explicitly hiring PMs who understand regulated workflows — not just AI fluency.",
+      "topics": ["ambient scribe", "clinical note eval", "edit rate metric", "hiring"],
+      "sources": [{ "type": "note", "ref": "People I met #1", "excerpt": "eval rubric for clinical note accuracy vs physician edit rate" }]
+    },
+    {
+      "id": "int-alex",
+      "personId": "person-alex-rivera",
+      "summary": "Random intro through Sarah; deep conversation on gaps in human-in-the-loop demos.",
+      "memorableDetail": "Ex-FDA perspective: most HITL demos ignore consent audit trails entirely.",
+      "topics": ["human-in-the-loop", "consent audit trails", "eval dataset diversity", "FDA"],
+      "sources": [{ "type": "conversation", "ref": "People I met #2" }]
+    },
+    {
+      "id": "int-sarah",
+      "personId": "person-sarah-kim",
+      "summary": "Organizer conversation about upcoming health-AI mixer series.",
+      "memorableDetail": "Next event theme is agentic workflows in hospitals — asked if I'd speak.",
+      "topics": ["event organizing", "agentic workflows", "hospitals"],
+      "sources": [{ "type": "note", "ref": "People I met #3" }]
+    }
+  ],
+  "claims": [
+    {
+      "id": "claim-1",
+      "text": "Dr. Maya Chen (MedAI): \"Evals aren't a gate before launch; they're the product surface clinicians trust.\"",
+      "sources": [{ "type": "note", "ref": "Panel highlights" }, { "type": "screenshot", "ref": "slide on evals as product surface" }],
+      "confidence": "high",
+      "themeId": "theme-eval-surface"
+    },
+    {
+      "id": "claim-2",
+      "text": "[non-obvious] Reframing evals as the ongoing product surface — not a pre-ship gate — shifts ownership from ML checklist to clinician trust design.",
+      "sources": [{ "type": "note", "ref": "My raw thoughts" }],
+      "confidence": "high",
+      "themeId": "theme-eval-surface"
+    },
+    {
+      "id": "claim-3",
+      "text": "A panel speaker argued benchmark leaderboard chasing is misleading for healthcare; task-specific failure modes matter more.",
+      "sources": [{ "type": "note", "ref": "Panel highlights" }],
+      "confidence": "high",
+      "themeId": "theme-healthcare-eval"
+    },
+    {
+      "id": "claim-4",
+      "text": "Audience asked who owns eval when PM and ML disagree — panel had no clear answer.",
+      "sources": [{ "type": "note", "ref": "Panel highlights" }],
+      "confidence": "high",
+      "themeId": "theme-ownership"
+    },
+    {
+      "id": "claim-5",
+      "text": "Jordan Lee's team measures ambient scribe quality via physician edit rate rather than BLEU-style scores.",
+      "sources": [{ "type": "conversation", "ref": "int-jordan" }],
+      "confidence": "high",
+      "themeId": "theme-practical-metrics"
+    },
+    {
+      "id": "claim-6",
+      "text": "Alex Rivera: most human-in-the-loop demos ignore consent audit trails.",
+      "sources": [{ "type": "conversation", "ref": "int-alex" }],
+      "confidence": "high",
+      "themeId": "theme-trust-gaps"
+    },
+    {
+      "id": "claim-7",
+      "text": "Open problem raised: eval datasets that reflect diverse patient populations.",
+      "sources": [{ "type": "conversation", "ref": "int-alex" }],
+      "confidence": "medium",
+      "themeId": "theme-healthcare-eval"
+    },
+    {
+      "id": "claim-8",
+      "text": "[non-obvious] The room focused on model eval; almost nobody discussed evaluating the agentic workflow itself (tool calls, handoffs, escalation).",
+      "sources": [{ "type": "note", "ref": "Less obvious takeaway" }],
+      "confidence": "high",
+      "themeId": "theme-agentic-eval"
+    }
+  ],
+  "themes": [
+    {
+      "id": "theme-eval-surface",
+      "label": "Evals as product surface vs pre-launch gate",
+      "claimIds": ["claim-1", "claim-2"]
+    },
+    {
+      "id": "theme-healthcare-eval",
+      "label": "Healthcare-specific eval beyond benchmarks",
+      "claimIds": ["claim-3", "claim-7"]
+    },
+    {
+      "id": "theme-ownership",
+      "label": "PM vs ML eval ownership ambiguity",
+      "claimIds": ["claim-4"]
+    },
+    {
+      "id": "theme-practical-metrics",
+      "label": "Production metrics that reflect clinical reality",
+      "claimIds": ["claim-5"]
+    },
+    {
+      "id": "theme-trust-gaps",
+      "label": "Workflow trust gaps in HITL demos",
+      "claimIds": ["claim-6"]
+    },
+    {
+      "id": "theme-agentic-eval",
+      "label": "Evaluating agentic workflows, not just models",
+      "claimIds": ["claim-8"]
+    }
+  ],
+  "stage": "extracted"
+}

@@ -1,0 +1,82 @@
+{
+  "contentAngles": [
+    {
+      "id": "angle-1",
+      "title": "The eval gap nobody at the mixer mentioned",
+      "hook": "Everyone at last night's SF health-AI mixer was debating model benchmarks. Almost nobody talked about evaluating the agentic workflow.",
+      "nonObviousInsight": "Model eval is table stakes; the missing layer is eval for tool calls, handoffs, and escalation paths — especially in hospital workflows where a 'correct' output can still break consent or audit requirements.",
+      "rationale": "Directly from your less-obvious takeaway; differentiated from typical event recap posts. Positions you at agentic AI + eval intersection.",
+      "expertiseLens": ["LLM evaluation frameworks", "agentic AI workflow design", "healthcare regulated workflows"],
+      "platforms": ["linkedin", "newsletter"],
+      "predictedAudience": "PMs and eval leads building in health AI; people who attend SF frontier AI events",
+      "claimIds": ["claim-8", "claim-1", "claim-6"]
+    },
+    {
+      "id": "angle-2",
+      "title": "Evals aren't a gate — they're the product surface",
+      "hook": "Dr. Maya Chen said something that stuck: evals aren't a gate before launch. They're the product surface clinicians trust.",
+      "nonObviousInsight": "This reframing shifts eval from ML's pre-ship checklist to PM's ongoing trust design problem — and it raises an uncomfortable question the panel couldn't answer: who owns eval when PM and ML disagree?",
+      "rationale": "Strong speaker quote + your ownership theme; less obvious than restating the quote alone because you add the PM/ML tension.",
+      "expertiseLens": ["product management", "LLM evaluation frameworks", "human-centered design"],
+      "platforms": ["linkedin", "twitter"],
+      "predictedAudience": "Product leaders in regulated industries; clinical AI builders",
+      "claimIds": ["claim-1", "claim-2", "claim-4"]
+    },
+    {
+      "id": "angle-3",
+      "title": "Why physician edit rate beats BLEU in clinical AI",
+      "hook": "A PM I met at a mixer measures ambient scribe quality by physician edit rate — not BLEU, not leaderboard scores.",
+      "nonObviousInsight": "Production eval metrics that reflect how clinicians actually work are more honest than benchmark chasing — but edit rate alone won't catch consent audit trail gaps that ex-FDA engineers keep flagging.",
+      "rationale": "Concrete, conversational, grounded in Jordan conversation; bridges practical metrics + trust gap without naming Jordan in a way that feels like name-dropping.",
+      "expertiseLens": ["healthcare regulated workflows", "LLM evaluation frameworks"],
+      "platforms": ["linkedin", "blog"],
+      "predictedAudience": "Health AI PMs and ML engineers evaluating clinical documentation products",
+      "claimIds": ["claim-5", "claim-3", "claim-6"]
+    }
+  ],
+  "contentDrafts": [
+    {
+      "id": "draft-linkedin-1",
+      "angleId": "angle-1",
+      "platform": "linkedin",
+      "body": "Last night at an SF health-AI mixer on frontier eval frameworks, the room was full of smart takes on model benchmarks and leaderboard skepticism.\n\nHere's what almost nobody said out loud:\n\nWe still don't know how to **evaluate the agentic workflow** — tool calls, handoffs, escalation — not just the model output.\n\nOne speaker (Dr. Maya Chen, MedAI) framed evals as \"the product surface clinicians trust\" — not a gate before launch. I keep turning that over.\n\nIf the model scores well but the workflow breaks consent logging or audit trails — a gap an ex-FDA engineer I met kept pointing to — did you pass eval?\n\nFor PMs in regulated industries, this isn't academic. It's the difference between a demo that wins a pitch and a product that survives a hospital workflow review.\n\nWhat's the eval metric you trust beyond model accuracy?\n\n#HealthAI #LLMEval #ProductManagement #AgenticAI",
+      "reasoningTrace": [
+        "Hook from claim-8 (non-obvious agentic eval gap)",
+        "Maya quote from claim-1 grounds the post in the event",
+        "Alex/consent angle from claim-6 adds trust dimension without naming him",
+        "Closing question invites PM audience engagement — matches voiceTraits"
+      ]
+    }
+  ],
+  "followUpDrafts": [
+    {
+      "id": "followup-jordan",
+      "personId": "person-jordan-lee",
+      "message": "Jordan — great chatting at the eval mixer (coffee line crew). Your point about measuring ambient scribe quality via physician edit rate vs BLEU stuck with me. Would love to hear more about how you're structuring that rubric — especially where PM and ML align (or don't). No rush, just genuinely curious.",
+      "contextUsed": ["Met at coffee line", "edit rate vs BLEU", "ambient scribe eval rubric", "already connected on LinkedIn"],
+      "tone": "curious"
+    },
+    {
+      "id": "followup-alex",
+      "personId": "person-alex-rivera",
+      "message": "Alex — Sarah intro'd us at the health-AI mixer and your point about consent audit trails in HITL demos has been rattling around my head since. Ex-FDA perspective is rare in those rooms. Would enjoy continuing the conversation if you're open to it.",
+      "contextUsed": ["Intro via Sarah Kim", "consent audit trails in HITL demos", "ex-FDA background"],
+      "tone": "warm"
+    },
+    {
+      "id": "followup-sarah",
+      "personId": "person-sarah-kim",
+      "message": "Sarah — thanks for a great mixer and for flagging the agentic workflows in hospitals event. Very much interested in the speaking conversation. I'll follow up with a few topic angles that might fit your audience.",
+      "contextUsed": ["Organizer of SF health-AI mixers", "invited to speak on agentic workflows in hospitals"],
+      "tone": "professional"
+    }
+  ],
+  "evalScores": {
+    "grounding": 92,
+    "voice": 78,
+    "expertiseLens": 88,
+    "nonObviousness": 85,
+    "notes": "Strong grounding via claim citations. Voice would improve further once real pastPostExamples are added to profile. Agentic workflow angle is clearly differentiated from generic event recap."
+  },
+  "stage": "drafted"
+}

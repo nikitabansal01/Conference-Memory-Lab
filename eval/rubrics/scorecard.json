@@ -1,0 +1,59 @@
+{
+  "name": "Conference Memory Lab Eval Rubrics",
+  "version": "0.1.0",
+  "dimensions": {
+    "grounding": {
+      "description": "Every statement in output is traceable to a claim with source ref",
+      "scale": "0-100",
+      "thresholds": {
+        "pass": 80,
+        "excellent": 95
+      },
+      "scoringGuide": {
+        "90-100": "All claims cited; no hallucinated quotes or attendees",
+        "70-89": "Mostly grounded; 1-2 unsupported statements",
+        "50-69": "Mix of grounded and generic filler",
+        "0-49": "Mostly generic or invented content"
+      }
+    },
+    "voice": {
+      "description": "Output matches user's voiceTraits and pastPostExamples",
+      "scale": "0-100",
+      "thresholds": { "pass": 70, "excellent": 90 },
+      "scoringGuide": {
+        "90-100": "Indistinguishable from user's corpus",
+        "70-89": "Recognizably user-like; minor AI tells",
+        "50-69": "Professional but generic",
+        "0-49": "Clearly generic AI voice"
+      }
+    },
+    "expertiseLens": {
+      "description": "PM/HCD/healthcare/eval perspective is visible and additive",
+      "scale": "0-100",
+      "thresholds": { "pass": 75, "excellent": 92 },
+      "scoringGuide": {
+        "90-100": "Insight only this user would write",
+        "75-89": "Clear expertise angle applied",
+        "50-74": "Surface-level industry mention",
+        "0-49": "Could be written by anyone"
+      }
+    },
+    "nonObviousness": {
+      "description": "Adds insight beyond restating event content",
+      "scale": "0-100",
+      "thresholds": { "pass": 65, "excellent": 88 },
+      "scoringGuide": {
+        "88-100": "Surprising connection or implication",
+        "65-87": "Solid reframing beyond recap",
+        "40-64": "Mostly recap with light commentary",
+        "0-39": "Event summary only"
+      }
+    }
+  },
+  "followUpRubric": {
+    "specificity": "References a concrete moment, topic, or shared context",
+    "brevity": "Connection note ≤300 chars; DM 2-3 sentences",
+    "authenticity": "Sounds like a human who was actually there",
+    "forwardMomentum": "Optional soft hook for future conversation, not a pitch"
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "themes": [
+    {
+      "id": "theme-eval-surface",
+      "label": "Evals as product surface vs pre-launch gate",
+      "claimIds": ["claim-1", "claim-2"],
+      "relation": "extends",
+      "profileConnection": "Extends your LLM eval framework work — evals aren't a gate you pass, they're the interface clinicians learn to trust. This is a PM ownership question, not just an ML metrics question."
+    },
+    {
+      "id": "theme-healthcare-eval",
+      "label": "Healthcare-specific eval beyond benchmarks",
+      "claimIds": ["claim-3", "claim-7"],
+      "relation": "reinforces",
+      "profileConnection": "Reinforces your regulated-industry lens: leaderboard metrics optimize for demos, not for clinical failure modes or population representation."
+    },
+    {
+      "id": "theme-ownership",
+      "label": "PM vs ML eval ownership ambiguity",
+      "claimIds": ["claim-4"],
+      "relation": "new",
+      "profileConnection": "New tension worth exploring in your content: when PM and ML disagree on eval criteria, there's no playbook — especially in healthcare where the 'customer' (clinician) isn't in the room."
+    },
+    {
+      "id": "theme-practical-metrics",
+      "label": "Production metrics that reflect clinical reality",
+      "claimIds": ["claim-5"],
+      "relation": "extends",
+      "profileConnection": "Extends your evaluation thinking with a concrete production metric (physician edit rate) that's more honest than BLEU — directly applicable to ambient scribe and clinical documentation products."
+    },
+    {
+      "id": "theme-trust-gaps",
+      "label": "Workflow trust gaps in HITL demos",
+      "claimIds": ["claim-6"],
+      "relation": "reinforces",
+      "profileConnection": "Reinforces your trust/transparency focus: Alex's consent audit trail gap is exactly what HCD and regulated workflow design should catch before ML teams ship."
+    },
+    {
+      "id": "theme-agentic-eval",
+      "label": "Evaluating agentic workflows, not just models",
+      "claimIds": ["claim-8"],
+      "relation": "extends",
+      "profileConnection": "Your sharpest wedge — connects agentic AI workflow design + eval frameworks. Most attendees will remember model benchmarks; you should retain the workflow-level eval gap."
+    }
+  ],
+  "assumptionChallenges": [
+    {
+      "question": "If evals are 'the product surface clinicians trust,' what happens when the agentic workflow (tool calls, handoffs, escalation) fails even though the model output scores well? Who owns that eval?",
+      "relatedClaimIds": ["claim-1", "claim-8"],
+      "intent": "Connect Maya's framing to your agentic workflow wedge — surface the gap the panel didn't address."
+    },
+    {
+      "question": "Jordan's edit-rate metric is more honest than BLEU — but does it capture consent and audit trail integrity, or only output quality? What would Alex (ex-FDA) push back on?",
+      "relatedClaimIds": ["claim-5", "claim-6"],
+      "intent": "Challenge whether we're over-indexing on model accuracy vs workflow trust — your raw thought from the event."
+    }
+  ],
+  "stage": "synthesized"
+}
