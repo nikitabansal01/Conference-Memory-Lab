@@ -1,20 +1,15 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { routeApi } from "../src/api/router.js";
+import { handleApiRoute } from "./_handler.js";
 
-export default async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-
-  if (req.method === "OPTIONS") {
-    res.status(204).end();
-    return;
-  }
-
+function resolvePathname(req: VercelRequest): string {
+  const raw = req.url ?? "/";
+  const pathname = new URL(raw, "http://localhost").pathname.replace(/\/$/, "") || "/";
+  if (pathname.startsWith("/api/")) return pathname;
   const segments = req.query.path;
   const pathParts = Array.isArray(segments) ? segments : segments ? [segments] : [];
-  const pathname = `/api/${pathParts.join("/")}`;
+  return pathParts.length ? `/api/${pathParts.join("/")}` : "/api/";
+}
 
-  const result = await routeApi(req.method ?? "GET", pathname, req.body);
-  res.status(result.status).json(result.body);
+export default function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
+  return handleApiRoute(req, res, resolvePathname(req));
 }

@@ -762,4 +762,14 @@ document.getElementById("form-lens").addEventListener("submit", async (e) => {
 });
 
 window.openEventModal = openEventModal;
-loadDashboard().catch((err) => { document.body.innerHTML = `<pre style="padding:24px">Failed: ${err.message}</pre>`; });
+
+function showLoadError(message) {
+  const main = document.querySelector(".main-area") ?? document.getElementById("view-home");
+  if (main) {
+    main.innerHTML = `<div class="load-error card"><h2>Could not load dashboard</h2><p>${escapeHtml(message)}</p><button type="button" class="btn btn-primary" onclick="location.reload()">Retry</button></div>`;
+    return;
+  }
+  document.body.innerHTML = `<pre style="padding:24px">Failed: ${escapeHtml(message)}</pre>`;
+}
+
+loadDashboard().catch((err) => showLoadError(err.message));

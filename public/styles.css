@@ -1817,4 +1817,19 @@ h3 { margin: 0 0 8px; font-size: 1rem; }
   .pipeline-connector { min-width: 8px; }
 }
 
+.load-error {
+  margin: 24px;
+  padding: 28px;
+  max-width: 480px;
+}
+
+.load-error h2 {
+  font-family: "Fraunces", serif;
+  margin: 0 0 8px;
+}
+
+.load-error p {
+  color: var(--muted);
+  margin: 0 0 16px;
+}
 
