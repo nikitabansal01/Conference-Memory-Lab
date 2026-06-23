@@ -70,14 +70,14 @@
       <main id="view-session" class="hidden session-view">
         <button type="button" class="back-link" id="btn-back">← Back to home</button>
         <section class="card session-card">
-          <div class="event-context-bar" id="session-event-context"></div>
-          <div class="pipeline-mini" id="session-pipeline" role="tablist"></div>
+          <header class="session-header" id="session-event-context"></header>
+          <p class="session-stage-hint" id="session-stage-hint" aria-live="polite"></p>
+          <nav class="session-tabs" id="session-pipeline" role="tablist" aria-label="Loop stages"></nav>
           <div class="panel" id="panel-attend"></div>
           <div class="panel" id="panel-think"></div>
           <div class="panel" id="panel-connect"></div>
           <div class="panel" id="panel-create"></div>
           <div class="panel" id="panel-review"></div>
-          <div id="event-link-banner" class="event-link-banner hidden"></div>
         </section>
         <aside class="session-quest-bar" id="session-quest-bar"></aside>
       </main>

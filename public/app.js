@@ -244,7 +244,8 @@ function renderLoopCompact(d) {
     else if (i < loopIdx) state = "done";
     else if (i === loopIdx) state = "active";
     else if (i === loopIdx + 1) state = "next";
-    return `<button type="button" class="loop-chip ${state}" ${session ? `data-loop-tab="${step.tab}"` : ""} title="${step.verb}">${step.label}</button>`;
+    const label = session && i < loopIdx ? `✓ ${step.label}` : step.label;
+    return `<button type="button" class="loop-chip ${state}" ${session ? `data-loop-tab="${step.tab}"` : ""} title="${step.verb}">${label}</button>`;
   }).join("");
 
   el.innerHTML = `
@@ -425,30 +426,26 @@ function renderSessionView() {
   const session = currentSession;
   if (!session) return;
 
+  const whenLabel = formatWhenLabel(session.createdAt);
+  const typeLabel = session.eventType.charAt(0).toUpperCase() + session.eventType.slice(1);
+  let metaExtras = "";
+  if (session.eventUrl) {
+    metaExtras = ` · <a href="${escapeHtml(session.eventUrl)}" target="_blank" rel="noopener">Event page</a>`;
+  } else if (session.eventLinkNudge?.show) {
+    metaExtras = ` · <button type="button" class="text-link-btn" id="btn-add-link-header">Add event page</button>`;
+  }
+
   document.getElementById("session-event-context").innerHTML = `
-    <span class="event-context-label">Past event</span>
-    <strong class="event-context-name">${escapeHtml(session.title)}</strong>
-    <span class="event-context-meta">${escapeHtml(session.eventType)} · ${escapeHtml(formatWhenLabel(session.createdAt))}${session.eventLinkInfo ? ` · ${escapeHtml(session.eventLinkInfo.label)}` : ""}</span>`;
+    <h1 class="session-title">${escapeHtml(session.title)}</h1>
+    <p class="session-meta">${escapeHtml(typeLabel)} · ${escapeHtml(whenLabel)}${metaExtras}</p>`;
+
+  document.getElementById("btn-add-link-header")?.addEventListener("click", () =>
+    openLinkModal(session.id, session.title)
+  );
 
   renderSessionPipeline(session);
+  renderSessionStageHint(session);
   renderSessionQuestBar(session);
-
-  const banner = document.getElementById("event-link-banner");
-  if (session.eventLinkNudge?.show) {
-    banner.classList.remove("hidden", "linked");
-    banner.innerHTML = `
-      <p>Add the event page for <strong>${escapeHtml(session.title)}</strong> (past event) — Luma, Eventbrite, or conference site.</p>
-      <button type="button" class="btn btn-small" id="btn-add-link-banner">Add link for this event</button>`;
-    banner.querySelector("#btn-add-link-banner").addEventListener("click", () =>
-      openLinkModal(session.id, session.title)
-    );
-  } else if (session.eventUrl) {
-    banner.classList.remove("hidden");
-    banner.classList.add("linked");
-    banner.innerHTML = `<p>Event page: <a href="${escapeHtml(session.eventUrl)}" target="_blank" rel="noopener">${escapeHtml(session.eventUrl)}</a></p>`;
-  } else {
-    banner.classList.add("hidden");
-  }
 
   document.getElementById("panel-attend").innerHTML = renderAttend(session);
   bindAttendPanel(session);
@@ -463,16 +460,25 @@ function renderSessionPipeline(session) {
   const loopIdx = STAGE_LOOP_INDEX[session.stage] ?? 0;
   const el = document.getElementById("session-pipeline");
   el.innerHTML = LOOP.map((step, i) => {
-    let state = "upcoming";
-    if (i < loopIdx) state = "done";
-    else if (i === loopIdx) state = "stage-current";
-    else if (i === loopIdx + 1) state = "next";
-    const selected = step.tab === activeTab ? " selected" : "";
-    return `<button type="button" class="pipe-mini ${state}${selected}" data-tab="${step.tab}" role="tab" aria-selected="${step.tab === activeTab}">${step.label}</button>`;
+    const isActive = step.tab === activeTab;
+    const isComplete = i < loopIdx;
+    const classes = ["session-tab", isActive ? "is-active" : "", isComplete ? "is-complete" : ""]
+      .filter(Boolean)
+      .join(" ");
+    const label = isComplete ? `✓ ${step.label}` : step.label;
+    return `<button type="button" class="${classes}" data-tab="${step.tab}" role="tab" aria-selected="${isActive}" title="${step.verb}">${label}</button>`;
   }).join("");
-  el.querySelectorAll(".pipe-mini").forEach((btn) => {
+  el.querySelectorAll(".session-tab").forEach((btn) => {
     btn.addEventListener("click", () => setActiveTab(btn.dataset.tab));
   });
+}
+
+function renderSessionStageHint(session) {
+  const loopIdx = STAGE_LOOP_INDEX[session.stage] ?? 0;
+  const step = LOOP[loopIdx] ?? LOOP[0];
+  const el = document.getElementById("session-stage-hint");
+  if (!el) return;
+  el.textContent = `Step ${loopIdx + 1} of ${LOOP.length} · ${step.verb}`;
 }
 
 function getSessionCta(session) {
@@ -498,7 +504,7 @@ function renderSessionQuestBar(session) {
   el.innerHTML = `
     <div class="session-quest-inner">
       <div>
-        <p class="quest-eyebrow">Next in loop</p>
+        <p class="quest-eyebrow">Recommended next step</p>
         <strong>${escapeHtml(label)}</strong>
       </div>
       <button type="button" class="btn btn-quest btn-compact">${escapeHtml(cta)}</button>
@@ -511,9 +517,9 @@ function renderSessionQuestBar(session) {
 
 function setActiveTab(tab) {
   activeTab = tab;
-  document.querySelectorAll(".pipe-mini").forEach((btn) => {
+  document.querySelectorAll(".session-tab").forEach((btn) => {
     const isSelected = btn.dataset.tab === tab;
-    btn.classList.toggle("selected", isSelected);
+    btn.classList.toggle("is-active", isSelected);
     btn.setAttribute("aria-selected", String(isSelected));
   });
   document.querySelectorAll(".panel").forEach((p) => p.classList.remove("active"));
@@ -535,20 +541,18 @@ function renderAttend(session) {
         <span>Notes & learnings</span>
         <textarea id="attend-notes" rows="10" placeholder="Who you met, what stood out, half-formed ideas…">${escapeHtml(session.rawNotes ?? "")}</textarea>
       </label>
-      <div class="attend-save-row">
-        <button type="button" class="btn btn-small" id="btn-save-attend-notes">Save notes</button>
+      <div class="attend-actions-primary">
+        <button type="button" class="btn btn-primary" id="btn-save-attend-notes">Save notes</button>
         <span class="attend-save-status" id="attend-save-status" aria-live="polite"></span>
       </div>
 
       <div class="attend-media-section">
-        <div class="attend-media-head">
-          <h3>Photos, audio & video</h3>
-          <button type="button" class="btn btn-small btn-ghost" id="btn-attend-upload">+ Add files</button>
-        </div>
+        <h4>Photos, audio &amp; video</h4>
+        <p class="field-hint">Optional — images, voice memos, and short clips up to 15MB each.</p>
+        <button type="button" class="btn btn-secondary" id="btn-attend-upload">+ Add photos or recordings</button>
         <input type="file" id="attend-file-input" accept="image/*,audio/*,video/*" multiple hidden />
-        <p class="field-hint">Images, voice memos, and short clips up to 15MB each.</p>
         <div class="capture-grid" id="attend-captures">
-          ${captures.length ? captures.map((c) => renderCaptureCard(session.id, c)).join("") : '<p class="empty" id="attend-captures-empty">No media yet — add photos or recordings from the event.</p>'}
+          ${captures.length ? captures.map((c) => renderCaptureCard(session.id, c)).join("") : '<p class="empty" id="attend-captures-empty">No media yet.</p>'}
         </div>
         <p class="field-hint" id="attend-upload-status" aria-live="polite"></p>
       </div>
