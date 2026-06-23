@@ -1,6 +1,38 @@
 let dashboardData = null;
 let currentSession = null;
 let activeTab = "think";
+let hubView = "tasks";
+let returnView = "home";
+let contentLayout = "idea";
+
+const HUB_VIEWS = {
+  tasks: {
+    kicker: "Across all events",
+    title: "Tasks",
+    desc: "Everything pending across your events — loop steps, links to add, and follow-through.",
+    nav: "tasks",
+  },
+  people: {
+    kicker: "Across all events",
+    title: "People",
+    desc: "Follow-ups and connection tasks — reach out while conversations are still fresh.",
+    nav: "people",
+  },
+  content: {
+    kicker: "Across all events",
+    title: "Content",
+    desc: "Post ideas from your events — grouped by what you mean to say, with platform drafts underneath.",
+    nav: "content",
+  },
+  events: {
+    kicker: "By event",
+    title: "Events",
+    desc: "Each event you've logged — open one to continue its five-step loop.",
+    nav: "events",
+  },
+};
+
+const HUB_VIEW_KEYS = ["tasks", "people", "content", "events"];
 
 const LOOP = [
   { key: "attend", label: "Attend", verb: "Show up & capture", tab: "attend" },
@@ -31,17 +63,42 @@ const ACTION_STATUS = {
   reflect: { label: "Recommended", tone: "rec" },
 };
 
-const ACTION_ICON = {
-  complete_lens: "◎",
-  log_event: "＋",
-  add_event_link: "🔗",
-  remember: "✎",
-  think: "◈",
-  connect: "↗",
-  create: "★",
-  review: "✓",
-  reflect: "→",
+const ACTION_CATEGORY = {
+  complete_lens: { label: "Lens", tone: "lens" },
+  log_event: { label: "Event", tone: "event" },
+  add_event_link: { label: "Attend", tone: "attend" },
+  remember: { label: "Attend", tone: "attend" },
+  think: { label: "Think", tone: "think" },
+  connect: { label: "People", tone: "people" },
+  create: { label: "Content", tone: "content" },
+  review: { label: "Review", tone: "review" },
+  reflect: { label: "Think", tone: "think" },
 };
+
+function getActionCategory(action) {
+  if (action.type === "connect" || action.tab === "connect" || action.goal === "people") {
+    return ACTION_CATEGORY.connect;
+  }
+  if (
+    action.type === "create" ||
+    action.type === "review" ||
+    action.tab === "create" ||
+    action.tab === "review" ||
+    action.goal === "content"
+  ) {
+    return action.type === "review" || action.tab === "review"
+      ? ACTION_CATEGORY.review
+      : ACTION_CATEGORY.create;
+  }
+  if (action.tab === "attend") return ACTION_CATEGORY.remember;
+  if (action.tab === "think") return ACTION_CATEGORY.think;
+  return ACTION_CATEGORY[action.type] ?? { label: "Task", tone: "default" };
+}
+
+function renderActionCategory(action) {
+  const cat = getActionCategory(action);
+  return `<span class="action-category tone-${cat.tone}">${escapeHtml(cat.label)}</span>`;
+}
 
 async function fetchJson(url, options) {
   const res = await fetch(url, options);
@@ -70,21 +127,368 @@ async function loadDashboard() {
 function renderHome() {
   const d = dashboardData;
   window._actions = d.actions;
+  window._allActions = d.allActions ?? d.actions;
   renderSidebarUser(d);
+  renderSidebarEvents(d);
   renderHero(d);
   renderLatestEvent(d);
   renderContinueActions(d);
-  renderLoopCompact(d);
   renderLens(d.profile, d.lensImpact);
   renderCapabilities(d);
   renderTimeline(d);
   renderBottomBanner();
-  document.getElementById("view-home").classList.remove("hidden");
-  document.getElementById("view-session").classList.add("hidden");
-  document.getElementById("main-topbar").classList.remove("hidden");
-  document.getElementById("sidebar").classList.remove("collapsed");
+  showMainView("home");
   setSidebarNavActive("home");
   closeMobileMenu();
+}
+
+function showMainView(view) {
+  document.getElementById("view-home").classList.toggle("hidden", view !== "home");
+  document.getElementById("view-hub").classList.toggle("hidden", view !== "hub");
+  document.getElementById("view-session").classList.toggle("hidden", view !== "session");
+  document.getElementById("main-topbar").classList.toggle("hidden", view === "session");
+  document.getElementById("btn-new-event")?.classList.toggle("hidden", view !== "home");
+  document.getElementById("sidebar").classList.remove("collapsed");
+}
+
+function showHubView(view = "tasks") {
+  hubView = view;
+  const meta = HUB_VIEWS[view] ?? HUB_VIEWS.tasks;
+  returnView = view;
+  showMainView("hub");
+  setSidebarNavActive(meta.nav);
+  document.getElementById("hub-kicker").textContent = meta.kicker;
+  document.getElementById("hub-title").textContent = meta.title;
+  document.getElementById("hub-desc").textContent = meta.desc;
+  renderHubBody();
+  closeMobileMenu();
+}
+
+function renderSidebarEvents(d) {
+  const listEl = document.getElementById("sidebar-event-list");
+  const sessions = d.sessions ?? [];
+
+  if (!sessions.length) {
+    listEl.innerHTML = `<p class="nav-event-empty">Log an event to see it here.</p>`;
+    return;
+  }
+
+  listEl.innerHTML = sessions
+    .map(
+      (s) => `
+      <button type="button" class="nav-event-item" data-open-event="${escapeHtml(s.id)}" data-event-tab="${escapeHtml(s.nextTab ?? "think")}">
+        <strong>${escapeHtml(s.title)}</strong>
+        <span>${escapeHtml(s.dateLabel ?? formatWhenLabel(s.createdAt))} · ${escapeHtml(s.loopLabel ?? "Attend")}${s.pendingCount ? ` · ${s.pendingCount} pending` : ""}</span>
+      </button>`
+    )
+    .join("");
+
+  listEl.querySelectorAll("[data-open-event]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      returnView = "events";
+      openSession(btn.dataset.openEvent, btn.dataset.eventTab);
+    });
+  });
+}
+
+function filterActionsByGoal(actions, goal) {
+  return actions.filter((a) => {
+    if (goal === "people") return a.type === "connect" || a.tab === "connect" || a.goal === "people";
+    if (goal === "content") {
+      return (
+        a.type === "create" ||
+        a.type === "review" ||
+        a.tab === "create" ||
+        a.tab === "review" ||
+        a.goal === "content"
+      );
+    }
+    return true;
+  });
+}
+
+function renderActionRows(actions, emptyMessage, actionListKey = "_filteredActions") {
+  if (!actions.length) {
+    return `<p class="empty-stack">${escapeHtml(emptyMessage)}</p>`;
+  }
+
+  window[actionListKey] = actions;
+
+  return `<ul class="action-list">
+    ${actions
+      .map((a, i) => {
+        const status = ACTION_STATUS[a.type] ?? { label: "Open", tone: "rec" };
+        const eventLine = a.sessionTitle ? `<span class="action-event-ref">${escapeHtml(a.sessionTitle)}</span>` : "";
+        return `
+          <li>
+            <button type="button" class="action-row" data-hub-action-idx="${i}" data-action-list="${actionListKey}">
+              ${renderActionCategory(a)}
+              <span class="action-body">
+                <strong>${escapeHtml(a.label)}</strong>
+                ${eventLine}
+                <span>${escapeHtml(a.description)}</span>
+              </span>
+              <span class="status-chip tone-${status.tone}">${escapeHtml(status.label)}</span>
+            </button>
+          </li>`;
+      })
+      .join("")}
+  </ul>`;
+}
+
+function bindHubActionRows(container) {
+  container.querySelectorAll("[data-hub-action-idx]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const listKey = btn.dataset.actionList ?? "_filteredActions";
+      const actions = window[listKey] ?? [];
+      returnView = hubView;
+      handleAction(actions[Number(btn.dataset.hubActionIdx)]);
+    });
+  });
+}
+
+function renderEventAddButton() {
+  return `<button type="button" class="btn btn-primary btn-block event-add-btn" data-add-event>+ Add event</button>`;
+}
+
+function renderEventCards(sessions, returnTo = "events") {
+  if (!sessions.length) {
+    return `
+      <p class="empty-stack">No events yet. Log a past mixer, panel, or conference to start.</p>
+      ${renderEventAddButton()}`;
+  }
+
+  return `
+    <div class="event-card-grid">
+      ${sessions
+        .map(
+          (s) => `
+        <button type="button" class="event-nav-card" data-open-event="${escapeHtml(s.id)}" data-event-tab="${escapeHtml(s.nextTab ?? "think")}" data-return-view="${returnTo}">
+          <span class="event-nav-card-main">
+            <strong>${escapeHtml(s.title)}</strong>
+            <span>${escapeHtml(s.dateLabel ?? formatWhenLabel(s.createdAt))} · ${s.peopleCount ?? 0} people · ${s.ideasCount ?? 0} ideas</span>
+          </span>
+          <span class="event-nav-card-meta">
+            <span class="loop-stage-chip">${escapeHtml(s.loopLabel ?? "Attend")}</span>
+            ${s.pendingCount ? `<span class="pending-chip">${s.pendingCount} pending</span>` : ""}
+          </span>
+        </button>`
+        )
+        .join("")}
+    </div>
+    ${renderEventAddButton()}`;
+}
+
+function bindEventCards(container) {
+  container.querySelectorAll("[data-open-event]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      returnView = btn.dataset.returnView ?? hubView;
+      openSession(btn.dataset.openEvent, btn.dataset.eventTab);
+    });
+  });
+  container.querySelectorAll("[data-add-event]").forEach((btn) => {
+    btn.addEventListener("click", openEventModal);
+  });
+}
+
+const CONTENT_STATUS_LABEL = {
+  not_started: "Not started",
+  in_progress: "In progress",
+  needs_review: "Needs review",
+  reviewed: "Reviewed",
+};
+
+const CONTENT_STATUS_TONE = {
+  not_started: "muted",
+  in_progress: "progress",
+  needs_review: "high",
+  reviewed: "rec",
+};
+
+const PLATFORM_LABEL = {
+  linkedin: "LinkedIn",
+  twitter: "Twitter",
+  newsletter: "Newsletter",
+  blog: "Blog",
+  substack: "Substack",
+  medium: "Medium",
+};
+
+function platformLabel(platform) {
+  return PLATFORM_LABEL[platform] ?? platform.charAt(0).toUpperCase() + platform.slice(1);
+}
+
+function contentOpenTab(status) {
+  if (status === "needs_review" || status === "reviewed") return "review";
+  if (status === "not_started") return "create";
+  return "create";
+}
+
+function renderContentStatusChip(status) {
+  const tone = CONTENT_STATUS_TONE[status] ?? "rec";
+  return `<span class="status-chip tone-${tone}">${escapeHtml(CONTENT_STATUS_LABEL[status] ?? status)}</span>`;
+}
+
+function renderContentLayoutToggle() {
+  return `
+    <div class="content-layout-toggle" role="group" aria-label="Content layout">
+      <button type="button" class="content-layout-btn${contentLayout === "idea" ? " is-active" : ""}" data-content-layout="idea">By post idea</button>
+      <button type="button" class="content-layout-btn${contentLayout === "platform" ? " is-active" : ""}" data-content-layout="platform">By platform</button>
+    </div>`;
+}
+
+function renderContentByIdea(contentHub) {
+  const sections = [
+    { key: "needs_review", title: "Needs review" },
+    { key: "in_progress", title: "In progress" },
+    { key: "not_started", title: "Not started" },
+    { key: "reviewed", title: "Reviewed" },
+  ];
+
+  const grouped = Object.fromEntries(sections.map((s) => [s.key, []]));
+  for (const angle of contentHub.angles ?? []) {
+    grouped[angle.status]?.push(angle);
+  }
+
+  const sectionHtml = sections
+    .filter((s) => grouped[s.key].length > 0)
+    .map((s) => {
+      const cards = grouped[s.key]
+        .map(
+          (angle) => `
+        <article class="content-angle-card">
+          <button type="button" class="content-angle-head" data-content-open="${escapeHtml(angle.sessionId)}" data-content-tab="${contentOpenTab(angle.status)}">
+            <div class="content-angle-main">
+              <strong>${escapeHtml(angle.title)}</strong>
+              <span class="content-angle-event">${escapeHtml(angle.sessionTitle)} · ${escapeHtml(angle.sessionDateLabel)}</span>
+              <p class="content-angle-insight">${escapeHtml(angle.insight)}</p>
+            </div>
+            ${renderContentStatusChip(angle.status)}
+          </button>
+          <ul class="content-platform-list">
+            ${angle.platforms
+              .map(
+                (p) => `
+              <li>
+                <button type="button" class="content-platform-row" data-content-open="${escapeHtml(angle.sessionId)}" data-content-tab="${contentOpenTab(p.status)}">
+                  <span class="platform-chip">${escapeHtml(platformLabel(p.platform))}</span>
+                  <span class="content-platform-status">${escapeHtml(CONTENT_STATUS_LABEL[p.status] ?? p.status)}</span>
+                </button>
+              </li>`
+              )
+              .join("")}
+          </ul>
+        </article>`
+        )
+        .join("");
+
+      return `
+        <section class="content-section">
+          <h2 class="content-section-title">${escapeHtml(s.title)} <span class="content-section-count">${grouped[s.key].length}</span></h2>
+          <div class="content-angle-grid">${cards}</div>
+        </section>`;
+    })
+    .join("");
+
+  return sectionHtml || `<p class="empty-stack">No post ideas yet. Finish Think on an event to surface content angles.</p>`;
+}
+
+function renderContentByPlatform(contentHub) {
+  const byPlatform = contentHub.byPlatform ?? [];
+  if (!byPlatform.length) {
+    return `<p class="empty-stack">No platform drafts yet. Create content from an event's post ideas.</p>`;
+  }
+
+  const groups = new Map();
+  for (const item of byPlatform) {
+    if (!groups.has(item.platform)) groups.set(item.platform, []);
+    groups.get(item.platform).push(item);
+  }
+
+  return [...groups.entries()]
+    .sort(([a], [b]) => platformLabel(a).localeCompare(platformLabel(b)))
+    .map(([platform, items]) => {
+      const rows = items
+        .map(
+          (item) => `
+        <button type="button" class="content-platform-card" data-content-open="${escapeHtml(item.sessionId)}" data-content-tab="${contentOpenTab(item.status)}">
+          <span class="content-platform-card-main">
+            <strong>${escapeHtml(item.angleTitle)}</strong>
+            <span>${escapeHtml(item.sessionTitle)}</span>
+          </span>
+          ${renderContentStatusChip(item.status)}
+        </button>`
+        )
+        .join("");
+
+      return `
+        <section class="content-section">
+          <h2 class="content-section-title">${escapeHtml(platformLabel(platform))} <span class="content-section-count">${items.length}</span></h2>
+          <div class="content-platform-grid">${rows}</div>
+        </section>`;
+    })
+    .join("");
+}
+
+function renderContentHub(contentHub) {
+  const body =
+    contentLayout === "platform"
+      ? renderContentByPlatform(contentHub)
+      : renderContentByIdea(contentHub);
+
+  return `
+    ${renderContentLayoutToggle()}
+    ${body}`;
+}
+
+function bindContentHub(container) {
+  container.querySelectorAll("[data-content-layout]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      contentLayout = btn.dataset.contentLayout;
+      renderHubBody();
+    });
+  });
+  container.querySelectorAll("[data-content-open]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      returnView = "content";
+      openSession(btn.dataset.contentOpen, btn.dataset.contentTab ?? "create");
+    });
+  });
+}
+
+function renderHubBody() {
+  const el = document.getElementById("hub-body");
+  const d = dashboardData;
+  const sessions = d?.sessions ?? [];
+  const allActions = d?.allActions ?? d?.actions ?? [];
+
+  if (hubView === "events") {
+    el.innerHTML = `<section class="events-section">${renderEventCards(sessions, "events")}</section>`;
+    bindEventCards(el);
+    return;
+  }
+
+  if (hubView === "content") {
+    el.innerHTML = renderContentHub(d?.contentHub ?? { angles: [], byPlatform: [], counts: {} });
+    bindContentHub(el);
+    return;
+  }
+
+  const filtered =
+    hubView === "tasks" ? allActions : filterActionsByGoal(allActions, hubView);
+
+  const emptyMessages = {
+    tasks: "You're caught up — no pending tasks across your events.",
+    people: "No follow-ups pending. Open an event's Connect step to draft messages.",
+    content: "No content drafts pending. Finish Think & Connect first, then Create.",
+  };
+
+  el.innerHTML = `
+    <section class="events-section">
+      ${renderActionRows(filtered, emptyMessages[hubView] ?? emptyMessages.tasks)}
+    </section>`;
+
+  bindHubActionRows(el);
 }
 
 function firstName(name) {
@@ -145,6 +549,7 @@ function renderLatestEvent(d) {
   const stats = session.stats ?? {};
   const whenLabel = formatWhenLabel(session.createdAt);
   const idea = stats.biggestIdea ?? getMatteredLine(session);
+  const loopProgress = renderEventLoopProgress(session);
 
   el.innerHTML = `
     <p class="section-kicker">Latest event · ${escapeHtml(whenLabel)}</p>
@@ -159,6 +564,7 @@ function renderLatestEvent(d) {
         </p>
       </div>
     </div>
+    ${loopProgress}
     ${idea ? `
       <div class="insight-box">
         <span class="insight-box-label">Yesterday's biggest idea</span>
@@ -171,6 +577,89 @@ function renderLatestEvent(d) {
 
   el.querySelector("[data-open-session]")?.addEventListener("click", () => openSession(session.id, "think"));
   el.querySelector("[data-view-ideas]")?.addEventListener("click", () => openSession(session.id, "think"));
+  el.querySelectorAll(".event-loop-step[data-tab]").forEach((btn) => {
+    btn.addEventListener("click", () => openSession(session.id, btn.dataset.tab));
+  });
+}
+
+function loopIndexForSession(session) {
+  return STAGE_LOOP_INDEX[session.stage] ?? 0;
+}
+
+function loopStepState(index, tab, loopIdx, selectedTab) {
+  if (selectedTab && tab === selectedTab) return "current";
+  if (index < loopIdx) return "done";
+  if (!selectedTab && index === loopIdx) return "current";
+  return "upcoming";
+}
+
+function loopStepSummary(session, selectedTab = null) {
+  const loopIdx = loopIndexForSession(session);
+  const activeIndex =
+    selectedTab != null ? LOOP.findIndex((s) => s.tab === selectedTab) : loopIdx;
+  const activeStep = LOOP[activeIndex >= 0 ? activeIndex : loopIdx] ?? LOOP[0];
+  return { activeIndex: activeIndex >= 0 ? activeIndex : loopIdx, activeStep };
+}
+
+function renderLoopStepButtons(session, selectedTab = null) {
+  const loopIdx = loopIndexForSession(session);
+  return LOOP.map((step, i) => {
+    const state = loopStepState(i, step.tab, loopIdx, selectedTab);
+    const isSelected = selectedTab === step.tab;
+    return `
+      <button
+        type="button"
+        class="event-loop-step ${state}"
+        data-tab="${step.tab}"
+        role="tab"
+        aria-selected="${isSelected}"
+        title="${escapeHtml(step.verb)}"
+      >
+        <span class="event-loop-step-num">${i + 1}</span>
+        <span class="event-loop-step-label">${escapeHtml(step.label)}</span>
+      </button>`;
+  }).join("");
+}
+
+function renderLoopBlock(session, selectedTab = null) {
+  const { activeIndex, activeStep } = loopStepSummary(session, selectedTab);
+  return `
+    <div class="event-loop-block">
+      <div class="event-loop-head">
+        <span class="event-loop-kicker">Your progress</span>
+        <span class="event-loop-now">Step ${activeIndex + 1} · ${escapeHtml(activeStep.verb)}</span>
+      </div>
+      <div class="event-loop-track" role="tablist" aria-label="Loop stages">
+        ${renderLoopStepButtons(session, selectedTab)}
+      </div>
+    </div>`;
+}
+
+function renderEventLoopProgress(session) {
+  return renderLoopBlock(session, null);
+}
+
+function bindLoopStepButtons(container, onSelect) {
+  container.querySelectorAll(".event-loop-step[data-tab]").forEach((btn) => {
+    btn.addEventListener("click", () => onSelect(btn.dataset.tab));
+  });
+}
+
+function syncLoopStepStates(session, selectedTab) {
+  const loopIdx = loopIndexForSession(session);
+  const { activeIndex, activeStep } = loopStepSummary(session, selectedTab);
+
+  document.querySelectorAll("#session-pipeline .event-loop-step").forEach((btn) => {
+    const i = LOOP.findIndex((s) => s.tab === btn.dataset.tab);
+    const state = loopStepState(i, btn.dataset.tab, loopIdx, selectedTab);
+    btn.className = `event-loop-step ${state}`;
+    btn.setAttribute("aria-selected", String(btn.dataset.tab === selectedTab));
+  });
+
+  const nowEl = document.querySelector("#session-pipeline .event-loop-now");
+  if (nowEl) {
+    nowEl.textContent = `Step ${activeIndex + 1} · ${activeStep.verb}`;
+  }
 }
 
 function renderContinueActions(d) {
@@ -190,11 +679,10 @@ function renderContinueActions(d) {
     <ul class="action-list">
       ${actions.map((a, i) => {
         const status = ACTION_STATUS[a.type] ?? { label: "Open", tone: "rec" };
-        const icon = ACTION_ICON[a.type] ?? "→";
         return `
           <li>
             <button type="button" class="action-row" data-action-idx="${i}">
-              <span class="action-icon" aria-hidden="true">${icon}</span>
+              ${renderActionCategory(a)}
               <span class="action-body">
                 <strong>${escapeHtml(a.label)}</strong>
                 <span>${escapeHtml(a.description)}</span>
@@ -213,11 +701,10 @@ function renderContinueActions(d) {
     renderContinueActions({ ...d, actions: d.actions, _showAll: true });
     const all = d.actions.map((a, i) => {
       const status = ACTION_STATUS[a.type] ?? { label: "Open", tone: "rec" };
-      const icon = ACTION_ICON[a.type] ?? "→";
       return `
         <li>
           <button type="button" class="action-row" data-action-idx="${i}">
-            <span class="action-icon" aria-hidden="true">${icon}</span>
+            ${renderActionCategory(a)}
             <span class="action-body">
               <strong>${escapeHtml(a.label)}</strong>
               <span>${escapeHtml(a.description)}</span>
@@ -234,31 +721,53 @@ function renderContinueActions(d) {
   });
 }
 
-function renderLoopCompact(d) {
-  const el = document.getElementById("loop-compact");
-  const session = d.featuredSession;
-  const loopIdx = session ? STAGE_LOOP_INDEX[session.stage] ?? 0 : 0;
-
-  const steps = LOOP.map((step, i) => {
-    let state = "upcoming";
-    if (!session) state = i === 0 ? "next" : "upcoming";
-    else if (i < loopIdx) state = "done";
-    else if (i === loopIdx) state = "active";
-    else if (i === loopIdx + 1) state = "next";
-    const label = session && i < loopIdx ? `✓ ${step.label}` : step.label;
-    return `<button type="button" class="loop-chip ${state}" ${session ? `data-loop-tab="${step.tab}"` : ""} title="${step.verb}">${label}</button>`;
-  }).join("");
+function renderCapabilities(d) {
+  const el = document.getElementById("capabilities-card");
+  const p = d.progress;
+  const caps = p.capabilities ?? [];
+  const allCaps = [
+    { label: "Attend", unlockLevel: 0, hint: "Capture notes & media" },
+    { label: "Think", unlockLevel: 1, hint: "Synthesize what mattered" },
+    { label: "Connect", unlockLevel: 2, hint: "Draft follow-ups" },
+    { label: "Create", unlockLevel: 2, hint: "Write platform drafts" },
+    { label: "Review", unlockLevel: 3, hint: "Approve before sharing" },
+  ];
+  const next = d.nextUnlock;
+  const progressPct = p.next?.progressPct ?? 100;
 
   el.innerHTML = `
-    <div class="loop-compact-head">
-      <h2 class="section-title-sm">Your loop</h2>
-      <span class="loop-compact-hint">Attend → Think → Connect → Create → Review</span>
+    <div class="capabilities-head">
+      <h2>Your capacity</h2>
+      <span class="level-badge">Level ${p.level} · ${escapeHtml(p.levelName)}</span>
     </div>
-    <div class="loop-chip-track">${steps}</div>`;
+    <p class="lens-sub">Loop stages unlock as you use the product — not a grind, earned trust.</p>
+    <div class="capacity-stepper">
+      ${allCaps
+        .map((cap) => {
+          const unlocked = caps.includes(cap.label);
+          return `
+        <div class="capacity-step${unlocked ? " is-unlocked" : " is-locked"}" title="${escapeHtml(cap.hint)}">
+          <span class="capacity-step-marker" aria-hidden="true">${unlocked ? "✓" : "○"}</span>
+          <span class="capacity-step-label">${escapeHtml(cap.label)}</span>
+        </div>`;
+        })
+        .join("")}
+    </div>
+    ${
+      next
+        ? `
+      <div class="capacity-unlock-card">
+        <span class="capacity-unlock-label">Next unlock</span>
+        <strong>Level ${next.level} · ${escapeHtml(next.name)}</strong>
+        <p>${escapeHtml(next.tagline)}</p>
+        <div class="progress-track capacity-track">
+          <div class="progress-fill" style="width:${progressPct}%"></div>
+        </div>
+      </div>`
+        : `<p class="capacity-next">All loop stages unlocked. Connect accounts in <button type="button" class="text-link-btn" data-open-connections>Connections</button> when ready.</p>`
+    }`;
 
-  el.querySelectorAll("[data-loop-tab]").forEach((btn) => {
-    btn.addEventListener("click", () => openSession(session.id, btn.dataset.loopTab));
-  });
+  el.querySelector("[data-open-connections]")?.addEventListener("click", openConnectionsModal);
 }
 
 function renderLens(profile, lensImpact) {
@@ -306,38 +815,11 @@ function bindLensEdit(el) {
   });
 }
 
-function renderCapabilities(d) {
-  const el = document.getElementById("capabilities-card");
-  const p = d.progress;
-  const caps = p.capabilities ?? [];
-  const allCaps = ["Attend", "Think", "Connect", "Create", "Review"];
-  const locked = allCaps.filter((c) => !caps.includes(c));
-  const next = d.nextUnlock;
-
-  el.innerHTML = `
-    <div class="capabilities-head">
-      <h2>Thought Partner</h2>
-      <span class="level-badge">Level ${p.level}</span>
-    </div>
-    <p class="lens-sub">Learning & network capacity</p>
-    <div class="capacity-visual">
-      <div class="capacity-mountain" aria-hidden="true"></div>
-      <div class="progress-track capacity-track">
-        <div class="progress-fill" style="width:${p.next?.progressPct ?? 100}%"></div>
-      </div>
-      ${next ? `<p class="capacity-next">Growing toward <strong>Level ${next.level} ${escapeHtml(next.name)}</strong></p>` : `<p class="capacity-next">Full capacity unlocked</p>`}
-    </div>
-    <div class="cap-lists">
-      <div>
-        <span class="cap-list-label">Unlocked</span>
-        <ul class="cap-unlocked">${caps.map((c) => `<li>${escapeHtml(c)}</li>`).join("")}</ul>
-      </div>
-      ${locked.length ? `
-        <div>
-          <span class="cap-list-label">Next unlock</span>
-          <ul class="cap-locked">${locked.slice(0, 2).map((c) => `<li><span class="lock-icon" aria-hidden="true">—</span> ${escapeHtml(c)}</li>`).join("")}</ul>
-        </div>` : ""}
-    </div>`;
+function renderTimelineAddCard() {
+  return `
+    <button type="button" class="timeline-card timeline-card-add" data-add-event>
+      <span class="timeline-add-label">Add your next event</span>
+    </button>`;
 }
 
 function renderTimeline(d) {
@@ -350,21 +832,27 @@ function renderTimeline(d) {
       ${d.sessions.length > 4 ? `<button type="button" class="btn btn-text" id="timeline-all">View all events →</button>` : ""}
     </div>
     <div class="timeline-track">
-      ${sessions.length
-        ? sessions.map((s) => `
+      ${sessions
+        .map(
+          (s) => `
             <button type="button" class="timeline-card" data-timeline-session="${escapeHtml(s.id)}">
               <span class="timeline-date">${escapeHtml(s.dateLabel ?? formatWhenLabel(s.createdAt))}</span>
               <strong>${escapeHtml(s.title)}</strong>
               <span class="timeline-meta">${s.peopleCount} people · ${s.ideasCount ?? s.claimsCount} ideas</span>
-            </button>`).join("")
-        : `<p class="empty-stack">Events you log will appear here as a memory trail.</p>`}
+            </button>`
+        )
+        .join("")}
+      ${renderTimelineAddCard()}
     </div>`;
 
   el.querySelectorAll("[data-timeline-session]").forEach((btn) => {
     btn.addEventListener("click", () => openSession(btn.dataset.timelineSession, "think"));
   });
+  el.querySelectorAll("[data-add-event]").forEach((btn) => {
+    btn.addEventListener("click", openEventModal);
+  });
   el.querySelector("#timeline-all")?.addEventListener("click", () => {
-    document.getElementById("memory-timeline").scrollIntoView({ behavior: "smooth" });
+    ensureDashboardData().then(() => showHubView("events"));
   });
 }
 
@@ -402,6 +890,72 @@ async function openLensModal() {
   document.getElementById("modal-lens").showModal();
 }
 
+const INTEGRATIONS = [
+  {
+    id: "linkedin",
+    name: "LinkedIn",
+    description: "Publish approved drafts and grow your network with context.",
+    unlockLevel: 4,
+    unlockName: "Publisher",
+  },
+  {
+    id: "luma",
+    name: "Luma & calendar",
+    description: "Import event details from Luma links and your calendar automatically.",
+    unlockLevel: 5,
+    unlockName: "Networker",
+  },
+  {
+    id: "x",
+    name: "X (Twitter)",
+    description: "Post threads and short-form content from your event drafts.",
+    unlockLevel: 4,
+    unlockName: "Publisher",
+  },
+];
+
+function renderConnectionsList() {
+  const level = dashboardData?.progress?.level ?? 0;
+  const el = document.getElementById("connections-list");
+
+  el.innerHTML = INTEGRATIONS.map((item) => {
+    const unlocked = level >= item.unlockLevel;
+    return `
+      <div class="connection-row${unlocked ? " is-unlocked" : ""}">
+        <div class="connection-copy">
+          <strong>${escapeHtml(item.name)}</strong>
+          <p>${escapeHtml(item.description)}</p>
+          ${
+            unlocked
+              ? `<span class="connection-status is-ready">Ready to connect</span>`
+              : `<span class="connection-status">Unlocks at Level ${item.unlockLevel} · ${escapeHtml(item.unlockName)} — review drafts first so the system learns your voice</span>`
+          }
+        </div>
+        <button type="button" class="btn btn-small${unlocked ? " btn-primary" : ""}" data-connect="${item.id}" ${unlocked ? "" : "disabled"}>
+          ${unlocked ? "Connect" : "Locked"}
+        </button>
+      </div>`;
+  }).join("");
+
+  el.querySelectorAll("[data-connect]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const item = INTEGRATIONS.find((i) => i.id === btn.dataset.connect);
+      alert(
+        `${item?.name} OAuth is coming soon. You'll connect here after approving drafts — so publishing matches your reviewed voice.`
+      );
+    });
+  });
+}
+
+function openConnectionsModal() {
+  if (!dashboardData) {
+    ensureDashboardData().then(openConnectionsModal);
+    return;
+  }
+  renderConnectionsList();
+  document.getElementById("modal-connections").showModal();
+}
+
 function arrayToLines(arr) {
   return (arr ?? []).join("\n");
 }
@@ -415,9 +969,7 @@ async function openSession(id, tab = "think") {
     activeTab = tab;
     currentSession = await fetchJson(`/api/sessions/${id}`);
     renderSessionView();
-    document.getElementById("view-home").classList.add("hidden");
-    document.getElementById("view-session").classList.remove("hidden");
-    document.getElementById("main-topbar").classList.add("hidden");
+    showMainView("session");
   } catch (err) {
     alert(err instanceof Error ? err.message : "Could not open session");
   }
@@ -445,7 +997,6 @@ function renderSessionView() {
   );
 
   renderSessionPipeline(session);
-  renderSessionStageHint(session);
   renderSessionQuestBar(session);
 
   document.getElementById("panel-attend").innerHTML = renderAttend(session);
@@ -458,28 +1009,9 @@ function renderSessionView() {
 }
 
 function renderSessionPipeline(session) {
-  const loopIdx = STAGE_LOOP_INDEX[session.stage] ?? 0;
   const el = document.getElementById("session-pipeline");
-  el.innerHTML = LOOP.map((step, i) => {
-    const isActive = step.tab === activeTab;
-    const isComplete = i < loopIdx;
-    const classes = ["session-tab", isActive ? "is-active" : "", isComplete ? "is-complete" : ""]
-      .filter(Boolean)
-      .join(" ");
-    const label = isComplete ? `✓ ${step.label}` : step.label;
-    return `<button type="button" class="${classes}" data-tab="${step.tab}" role="tab" aria-selected="${isActive}" title="${step.verb}">${label}</button>`;
-  }).join("");
-  el.querySelectorAll(".session-tab").forEach((btn) => {
-    btn.addEventListener("click", () => setActiveTab(btn.dataset.tab));
-  });
-}
-
-function renderSessionStageHint(session) {
-  const loopIdx = STAGE_LOOP_INDEX[session.stage] ?? 0;
-  const step = LOOP[loopIdx] ?? LOOP[0];
-  const el = document.getElementById("session-stage-hint");
-  if (!el) return;
-  el.textContent = `Step ${loopIdx + 1} of ${LOOP.length} · ${step.verb}`;
+  el.innerHTML = renderLoopBlock(session, activeTab);
+  bindLoopStepButtons(el, setActiveTab);
 }
 
 function getSessionCta(session) {
@@ -518,11 +1050,7 @@ function renderSessionQuestBar(session) {
 
 function setActiveTab(tab) {
   activeTab = tab;
-  document.querySelectorAll(".session-tab").forEach((btn) => {
-    const isSelected = btn.dataset.tab === tab;
-    btn.classList.toggle("is-active", isSelected);
-    btn.setAttribute("aria-selected", String(isSelected));
-  });
+  if (currentSession) syncLoopStepStates(currentSession, tab);
   document.querySelectorAll(".panel").forEach((p) => p.classList.remove("active"));
   document.getElementById(`panel-${tab}`)?.classList.add("active");
 }
@@ -820,30 +1348,56 @@ function setSidebarNavActive(nav) {
   document.querySelectorAll(".nav-item").forEach((item) => {
     item.classList.toggle("active", item.dataset.nav === nav);
   });
+  document.getElementById("nav-group-events")?.classList.toggle("is-open", nav === "events");
+}
+
+async function ensureDashboardData() {
+  dashboardData = await fetchJson("/api/dashboard");
+  window._actions = dashboardData.actions;
+  window._allActions = dashboardData.allActions ?? dashboardData.actions;
+  renderSidebarUser(dashboardData);
+  renderSidebarEvents(dashboardData);
 }
 
 async function ensureHomeView() {
-  if (document.getElementById("view-home").classList.contains("hidden")) {
+  if (
+    document.getElementById("view-home").classList.contains("hidden") ||
+    document.getElementById("view-hub").classList.contains("hidden") === false
+  ) {
     await loadDashboard();
+    return;
   }
+  await ensureDashboardData();
 }
 
 function handleNav(nav) {
   switch (nav) {
     case "home":
+      returnView = "home";
       loadDashboard();
       break;
+    case "tasks":
+      ensureDashboardData().then(() => showHubView("tasks"));
+      break;
+    case "people":
+      ensureDashboardData().then(() => showHubView("people"));
+      break;
+    case "content":
+      ensureDashboardData().then(() => showHubView("content"));
+      break;
     case "events":
-      ensureHomeView().then(() => {
-        setSidebarNavActive("events");
-        document.getElementById("memory-timeline")?.scrollIntoView({ behavior: "smooth" });
-      });
+      ensureDashboardData().then(() => showHubView("events"));
       break;
     case "lens":
       openLensModal();
       break;
+    case "connections":
+      openConnectionsModal();
+      break;
     case "help":
+      returnView = "home";
       ensureHomeView().then(() => {
+        setSidebarNavActive("home");
         renderBottomBanner();
         document.getElementById("bottom-banner")?.scrollIntoView({ behavior: "smooth" });
       });
@@ -854,8 +1408,15 @@ function handleNav(nav) {
 document.getElementById("btn-new-event").addEventListener("click", openEventModal);
 document.getElementById("btn-cancel-event").addEventListener("click", () => document.getElementById("modal-event").close());
 document.getElementById("btn-cancel-lens").addEventListener("click", () => document.getElementById("modal-lens").close());
+document.getElementById("btn-close-connections").addEventListener("click", () => document.getElementById("modal-connections").close());
 document.getElementById("btn-cancel-link").addEventListener("click", () => document.getElementById("modal-link").close());
-document.getElementById("btn-back").addEventListener("click", () => loadDashboard());
+document.getElementById("btn-back").addEventListener("click", () => {
+  if (HUB_VIEW_KEYS.includes(returnView)) {
+    ensureDashboardData().then(() => showHubView(returnView));
+    return;
+  }
+  loadDashboard();
+});
 
 function closeMobileMenu() {
   const sidebar = document.getElementById("sidebar");

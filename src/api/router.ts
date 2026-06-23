@@ -21,7 +21,8 @@ import { formatLevelBadge } from "../gamification/xp.js";
 import type { EventSession, EventType, ExpertiseProfile, TrustLevel } from "../models/types.js";
 import { createSession } from "../lib/session.js";
 import { getProfileStatus } from "../lib/profile-status.js";
-import { buildActionItems, capabilitiesUnlocked, eventLinkNudge } from "../lib/actions.js";
+import { buildActionItems, buildAllActionItems, buildSessionActionItems, capabilitiesUnlocked, eventLinkNudge, sessionLoopLabel, sessionNextTab } from "../lib/actions.js";
+import { buildContentHub } from "../lib/content-hub.js";
 import { parseEventUrl, isValidEventUrl } from "../lib/event-url.js";
 import {
   saveCaptureFile,
@@ -106,6 +107,9 @@ async function handleDashboard(): Promise<ApiResult> {
   const profileStatus = getProfileStatus(profile, Boolean(resume));
   const featured = await getFeaturedSession(sessions);
   const actions = buildActionItems(sessions, profileStatus, profile);
+  const allActions = buildAllActionItems(sessions, profile);
+  const contentSessions = sessions.length > 0 ? sessions : featured ? [featured] : [];
+  const contentHub = buildContentHub(contentSessions);
   const nextLevelDef = next.next ? getLevelDefinition(next.next as TrustLevel) : null;
   const timelineSessions = sessions.length > 0 ? sessions : featured ? [featured] : [];
 
@@ -139,6 +143,8 @@ async function handleDashboard(): Promise<ApiResult> {
         status: profileStatus,
       },
       actions,
+      allActions,
+      contentHub,
       sessions: timelineSessions.map((s) => ({
         id: s.id,
         title: s.title,
@@ -151,6 +157,9 @@ async function handleDashboard(): Promise<ApiResult> {
         claimsCount: s.claims.length,
         ideasCount: getIdeasCount(s),
         dateLabel: formatSessionDate(s.createdAt),
+        nextTab: sessionNextTab(s),
+        loopLabel: sessionLoopLabel(s),
+        pendingCount: buildSessionActionItems(s, profile).length,
       })),
       featuredSession: featured
         ? {

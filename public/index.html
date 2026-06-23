@@ -28,10 +28,19 @@
       </div>
       <nav class="sidebar-nav" id="sidebar-nav" aria-label="Main">
         <button type="button" class="nav-item active" data-nav="home">Home</button>
-        <button type="button" class="nav-item" data-nav="events">Events</button>
+        <div class="nav-group" id="nav-group-events">
+          <button type="button" class="nav-item" data-nav="events">Events</button>
+          <div class="nav-subtree" id="sidebar-events-subtree">
+            <div class="nav-event-list" id="sidebar-event-list"></div>
+          </div>
+        </div>
+        <button type="button" class="nav-item" data-nav="tasks">Tasks</button>
+        <button type="button" class="nav-item" data-nav="people">People</button>
+        <button type="button" class="nav-item" data-nav="content">Content</button>
       </nav>
       <div class="sidebar-foot">
         <button type="button" class="nav-item nav-muted" data-nav="lens">Your Lens</button>
+        <button type="button" class="nav-item nav-muted" data-nav="connections">Connections</button>
         <button type="button" class="nav-item nav-muted" data-nav="help">Help</button>
         <div class="sidebar-user" id="sidebar-user"></div>
       </div>
@@ -50,7 +59,6 @@
           <div class="dashboard-main">
             <section class="card latest-event-card" id="latest-event"></section>
             <section class="card continue-card" id="continue-actions"></section>
-            <section class="card loop-compact" id="loop-compact"></section>
           </div>
           <aside class="dashboard-rail">
             <section class="card lens-card" id="lens-card"></section>
@@ -62,12 +70,22 @@
         <section class="bottom-banner" id="bottom-banner"></section>
       </main>
 
+      <main id="view-hub" class="hidden hub-view">
+        <header class="hub-header">
+          <div>
+            <p class="section-kicker" id="hub-kicker">Across all events</p>
+            <h1 class="hub-title" id="hub-title">Tasks</h1>
+            <p class="hub-desc" id="hub-desc">Pending actions from every event, in priority order.</p>
+          </div>
+        </header>
+        <section class="hub-body" id="hub-body"></section>
+      </main>
+
       <main id="view-session" class="hidden session-view">
         <button type="button" class="back-link" id="btn-back">← Back to home</button>
         <section class="card session-card">
           <header class="session-header" id="session-event-context"></header>
-          <p class="session-stage-hint" id="session-stage-hint" aria-live="polite"></p>
-          <nav class="session-tabs" id="session-pipeline" role="tablist" aria-label="Loop stages"></nav>
+          <div id="session-pipeline"></div>
           <div class="panel" id="panel-attend"></div>
           <div class="panel" id="panel-think"></div>
           <div class="panel" id="panel-connect"></div>
@@ -189,6 +207,17 @@
         <button type="submit" class="btn btn-primary">Save lens</button>
       </footer>
     </form>
+  </dialog>
+
+  <dialog id="modal-connections" class="modal">
+    <header class="modal-header">
+      <h2>Connections</h2>
+      <p class="section-hint">Link accounts to import events and publish — unlocked as you review drafts and earn trust.</p>
+    </header>
+    <div class="connections-list" id="connections-list"></div>
+    <footer class="modal-footer">
+      <button type="button" class="btn btn-ghost" id="btn-close-connections">Close</button>
+    </footer>
   </dialog>
 
   <script src="/app.js"></script>

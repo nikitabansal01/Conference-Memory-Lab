@@ -13,6 +13,8 @@ export type ActionType =
   | "review"
   | "reflect";
 
+export type ActionGoal = "people" | "content" | "loop";
+
 export interface ActionItem {
   id: string;
   type: ActionType;
@@ -20,15 +22,219 @@ export interface ActionItem {
   description: string;
   priority: number;
   sessionId?: string;
+  sessionTitle?: string;
   tab?: string;
+  goal?: ActionGoal;
+  platform?: string;
 }
 
-function whatMatteredLine(session: EventSession): string {
-  const nonObvious = session.claims.find((c) => c.text.includes("[non-obvious]"));
-  if (nonObvious) return nonObvious.text.replace("[non-obvious] ", "").slice(0, 120);
-  const theme = session.themes[0];
-  if (theme) return theme.label;
-  return "Capture what stood out from this event";
+const STAGE_TAB: Record<EventSession["stage"], string> = {
+  ingested: "attend",
+  extracted: "think",
+  synthesized: "connect",
+  drafted: "create",
+  reviewed: "review",
+  published: "think",
+};
+
+const STAGE_LABEL: Record<EventSession["stage"], string> = {
+  ingested: "Attend",
+  extracted: "Think",
+  synthesized: "Connect",
+  drafted: "Create",
+  reviewed: "Review",
+  published: "Complete",
+};
+
+export function sessionNextTab(session: EventSession): string {
+  return STAGE_TAB[session.stage] ?? "attend";
+}
+
+export function sessionLoopLabel(session: EventSession): string {
+  return STAGE_LABEL[session.stage] ?? "Attend";
+}
+
+export function actionGoal(action: ActionItem): ActionGoal {
+  if (action.goal) return action.goal;
+  if (action.type === "connect" || action.tab === "connect") return "people";
+  if (
+    action.type === "create" ||
+    action.type === "review" ||
+    action.tab === "create" ||
+    action.tab === "review"
+  ) {
+    return "content";
+  }
+  return "loop";
+}
+
+function withSessionMeta(item: Omit<ActionItem, "sessionTitle">, session: EventSession): ActionItem {
+  return {
+    ...item,
+    sessionTitle: session.title,
+    goal: item.goal ?? actionGoal(item as ActionItem),
+  };
+}
+
+export function buildSessionActionItems(
+  session: EventSession,
+  profile: ExpertiseProfile
+): ActionItem[] {
+  const items: ActionItem[] = [];
+
+  if (!session.eventUrl) {
+    items.push(
+      withSessionMeta(
+        {
+          id: `add-link-${session.id}`,
+          type: "add_event_link",
+          label: `Add link to “${session.title}”`,
+          description: "Paste the Luma, Eventbrite, or conference page",
+          priority: 85,
+          sessionId: session.id,
+          tab: "attend",
+        },
+        session
+      )
+    );
+  }
+
+  const stageActions: Record<EventSession["stage"], ActionItem | null> = {
+    ingested: {
+      id: `attend-${session.id}`,
+      type: "remember",
+      label: "Capture what you learned",
+      description: `Finish processing notes from “${session.title}”`,
+      priority: 80,
+      sessionId: session.id,
+      tab: "attend",
+    },
+    extracted: {
+      id: `think-${session.id}`,
+      type: "think",
+      label: "Think deeper about this event",
+      description: `What mattered at “${session.title}” — for your lens, not a recap`,
+      priority: 80,
+      sessionId: session.id,
+      tab: "think",
+    },
+    synthesized: {
+      id: `connect-${session.id}`,
+      type: "connect",
+      label: "Reach out while it's fresh",
+      description: `Draft follow-ups from “${session.title}” before you publish`,
+      priority: 80,
+      sessionId: session.id,
+      tab: "connect",
+    },
+    drafted: {
+      id: `create-${session.id}`,
+      type: "create",
+      label: "Draft your take from this event",
+      description: `Turn “${session.title}” insights into a post you can tag people in`,
+      priority: 75,
+      sessionId: session.id,
+      tab: "create",
+    },
+    reviewed: {
+      id: `review-${session.id}`,
+      type: "review",
+      label: "Review before you share",
+      description: `Final check on grounding and voice for “${session.title}”`,
+      priority: 70,
+      sessionId: session.id,
+      tab: "review",
+    },
+    published: null,
+  };
+
+  const stageAction = stageActions[session.stage];
+  if (stageAction) items.push(withSessionMeta(stageAction, session));
+
+  if (
+    session.followUpDrafts.length > 0 &&
+    (session.stage === "synthesized" || session.stage === "drafted")
+  ) {
+    for (const draft of session.followUpDrafts) {
+      const person = session.people.find((p) => p.id === draft.personId);
+      items.push(
+        withSessionMeta(
+          {
+            id: `followup-${draft.id}`,
+            type: "connect",
+            label: `Follow up with ${person?.name ?? "someone you met"}`,
+            description: `At “${session.title}” · send before you publish so you can tag them`,
+            priority: 82,
+            sessionId: session.id,
+            tab: "connect",
+            goal: "people",
+          },
+          session
+        )
+      );
+    }
+  }
+
+  for (const draft of session.contentDrafts) {
+    if (session.stage !== "drafted" && session.stage !== "reviewed") continue;
+    const platformLabel =
+      draft.platform.charAt(0).toUpperCase() + draft.platform.slice(1);
+    items.push(
+      withSessionMeta(
+        {
+          id: `draft-${draft.id}`,
+          type: "create",
+          label: `Finish your ${platformLabel} draft`,
+          description:
+            session.contentAngles.find((a) => a.id === draft.angleId)?.title ??
+            "Review and refine your post",
+          priority: 76,
+          sessionId: session.id,
+          tab: "create",
+          goal: "content",
+          platform: draft.platform,
+        },
+        session
+      )
+    );
+  }
+
+  if (profile.experienceHighlights?.length && session.themes.length > 0) {
+    const theme =
+      session.themes.find((t) => t.relation === "extends") ?? session.themes[0];
+    items.push(
+      withSessionMeta(
+        {
+          id: `apply-${session.id}-${theme.id}`,
+          type: "reflect",
+          label: "Apply insight to your work",
+          description:
+            theme.profileConnection ??
+            `Connect "${theme.label}" to a current project`,
+          priority: 65,
+          sessionId: session.id,
+          tab: "think",
+        },
+        session
+      )
+    );
+  }
+
+  return items.sort((a, b) => b.priority - a.priority);
+}
+
+export function buildAllActionItems(
+  sessions: EventSession[],
+  profile: ExpertiseProfile
+): ActionItem[] {
+  const items: ActionItem[] = [];
+  for (let i = 0; i < sessions.length; i++) {
+    const sessionItems = buildSessionActionItems(sessions[i], profile);
+    for (const item of sessionItems) {
+      items.push({ ...item, priority: item.priority - i * 5 });
+    }
+  }
+  return items.sort((a, b) => b.priority - a.priority);
 }
 
 export function buildActionItems(
@@ -45,6 +251,7 @@ export function buildActionItems(
       label: "Complete Your Lens",
       description: profileStatus.missing[0] ?? "Upload resume or write a short bio",
       priority: 100,
+      goal: "loop",
     });
   }
 
@@ -53,116 +260,15 @@ export function buildActionItems(
       id: "log-event",
       type: "log_event",
       label: "Add your recent or upcoming event",
-      description: "Paste notes and add the event link (Luma, Eventbrite, or conference site)",
+      description:
+        "Paste notes and add the event link (Luma, Eventbrite, or conference site)",
       priority: 90,
+      goal: "loop",
     });
     return items.sort((a, b) => b.priority - a.priority);
   }
 
-  const latest = sessions[0];
-
-  if (!latest.eventUrl) {
-    items.push({
-      id: `add-link-${latest.id}`,
-      type: "add_event_link",
-      label: `Add link to “${latest.title}”`,
-      description: `Past event you attended · paste the Luma, Eventbrite, or conference page`,
-      priority: 85,
-      sessionId: latest.id,
-    });
-  }
-
-  const stageActions: Record<EventSession["stage"], ActionItem | null> = {
-    ingested: {
-      id: `attend-${latest.id}`,
-      type: "remember",
-      label: "Capture what you learned",
-      description: `Finish processing notes from “${latest.title}”`,
-      priority: 80,
-      sessionId: latest.id,
-      tab: "attend",
-    },
-    extracted: {
-      id: `think-${latest.id}`,
-      type: "think",
-      label: "Think deeper about this event",
-      description: `What mattered at “${latest.title}” — for your lens, not a recap`,
-      priority: 80,
-      sessionId: latest.id,
-      tab: "think",
-    },
-    synthesized: {
-      id: `connect-${latest.id}`,
-      type: "connect",
-      label: "Reach out while it's fresh",
-      description: `Draft follow-ups from “${latest.title}” before you publish`,
-      priority: 80,
-      sessionId: latest.id,
-      tab: "connect",
-    },
-    drafted: {
-      id: `create-${latest.id}`,
-      type: "create",
-      label: "Draft your take from this event",
-      description: `Turn “${latest.title}” insights into a post you can tag people in`,
-      priority: 75,
-      sessionId: latest.id,
-      tab: "create",
-    },
-    reviewed: {
-      id: `review-${latest.id}`,
-      type: "review",
-      label: "Review before you share",
-      description: `Final check on grounding and voice for “${latest.title}”`,
-      priority: 70,
-      sessionId: latest.id,
-      tab: "review",
-    },
-    published: null,
-  };
-
-  const stageAction = stageActions[latest.stage];
-  if (stageAction) items.push(stageAction);
-
-  if (latest.followUpDrafts.length > 0 && (latest.stage === "synthesized" || latest.stage === "drafted")) {
-    const first = latest.followUpDrafts[0];
-    const person = latest.people.find((p) => p.id === first.personId);
-    items.push({
-      id: `followup-${first.id}`,
-      type: "connect",
-      label: `Follow up with ${person?.name ?? "someone you met"}`,
-      description: `At “${latest.title}” · send before you publish so you can tag them`,
-      priority: 82,
-      sessionId: latest.id,
-      tab: "connect",
-    });
-  }
-
-  if (latest.contentDrafts.length > 0 && latest.stage === "drafted") {
-    items.push({
-      id: `draft-${latest.contentDrafts[0].id}`,
-      type: "create",
-      label: "Finish your LinkedIn draft",
-      description: latest.contentAngles[0]?.title ?? "Review and refine your post",
-      priority: 76,
-      sessionId: latest.id,
-      tab: "create",
-    });
-  }
-
-  if (profile.experienceHighlights?.length && latest.themes.length > 0) {
-    const theme = latest.themes.find((t) => t.relation === "extends") ?? latest.themes[0];
-    items.push({
-      id: `apply-${latest.id}-${theme.id}`,
-      type: "reflect",
-      label: "Apply insight to your work",
-      description: theme.profileConnection ?? `Connect "${theme.label}" to a current project`,
-      priority: 65,
-      sessionId: latest.id,
-      tab: "think",
-    });
-  }
-
+  items.push(...buildSessionActionItems(sessions[0], profile));
   return items.sort((a, b) => b.priority - a.priority);
 }
 
