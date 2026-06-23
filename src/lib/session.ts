@@ -40,6 +40,7 @@ export function createSession(input: {
     location: input.location,
     rawNotes: input.rawNotes,
     screenshotDescriptions: input.screenshotDescriptions ?? [],
+    captures: [],
     stage: "ingested",
     trustLevelAtCreation: level,
     people: [],

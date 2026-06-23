@@ -23,12 +23,21 @@ import { createSession } from "../lib/session.js";
 import { getProfileStatus } from "../lib/profile-status.js";
 import { buildActionItems, capabilitiesUnlocked, eventLinkNudge } from "../lib/actions.js";
 import { parseEventUrl, isValidEventUrl } from "../lib/event-url.js";
+import {
+  saveCaptureFile,
+  readCaptureFile,
+  deleteCaptureFile,
+  captureKindFromMime,
+  MAX_CAPTURE_BYTES,
+} from "../lib/captures.js";
 
 const EVENT_TYPES: EventType[] = ["mixer", "panel", "conference", "webinar", "other"];
 
 export interface ApiResult {
   status: number;
   body: unknown;
+  headers?: Record<string, string>;
+  raw?: Buffer;
 }
 
 function getBiggestIdea(session: EventSession): string | null {
@@ -269,29 +278,204 @@ export async function routeApi(
 
   if (pathname.startsWith("/api/sessions/") && method === "PATCH") {
     const id = pathname.replace("/api/sessions/", "");
-    const session = await resolveSession(id);
+    if (id.includes("/")) {
+      return { status: 404, body: { error: "Not found" } };
+    }
 
+    const session = await resolveSession(id);
     if (!session) {
       return { status: 404, body: { error: "Session not found" } };
     }
 
-    const body = parseRequestBody(rawBody) as { eventUrl?: string };
-    if (!body.eventUrl?.trim() || !isValidEventUrl(body.eventUrl)) {
-      return { status: 400, body: { error: "Valid event URL required" } };
+    const body = parseRequestBody(rawBody) as {
+      eventUrl?: string;
+      rawNotes?: string;
+      screenshotDescriptions?: string[];
+    };
+
+    const hasEventUrl = body.eventUrl !== undefined;
+    const hasNotes = body.rawNotes !== undefined;
+    const hasScreenshots = body.screenshotDescriptions !== undefined;
+
+    if (!hasEventUrl && !hasNotes && !hasScreenshots) {
+      return { status: 400, body: { error: "No valid fields to update" } };
     }
 
-    const info = parseEventUrl(body.eventUrl)!;
     const updated: EventSession = {
       ...session,
-      eventUrl: info.url,
       updatedAt: new Date().toISOString(),
     };
+
+    if (hasEventUrl) {
+      if (!body.eventUrl?.trim() || !isValidEventUrl(body.eventUrl)) {
+        return { status: 400, body: { error: "Valid event URL required" } };
+      }
+      updated.eventUrl = parseEventUrl(body.eventUrl)!.url;
+    }
+
+    if (hasNotes) {
+      updated.rawNotes = String(body.rawNotes ?? "");
+    }
+
+    if (hasScreenshots) {
+      updated.screenshotDescriptions = Array.isArray(body.screenshotDescriptions)
+        ? body.screenshotDescriptions.map(String)
+        : session.screenshotDescriptions;
+    }
+
     await saveSession(updated);
-    return { status: 200, body: { session: updated, eventLinkInfo: info } };
+    return {
+      status: 200,
+      body: {
+        session: {
+          ...updated,
+          eventLinkNudge: eventLinkNudge(updated),
+          eventLinkInfo: updated.eventUrl ? parseEventUrl(updated.eventUrl) : null,
+        },
+        eventLinkInfo: updated.eventUrl ? parseEventUrl(updated.eventUrl) : null,
+      },
+    };
+  }
+
+  const capturePathMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/captures\/([^/]+)$/);
+  if (capturePathMatch) {
+    const [, sessionId, captureRef] = capturePathMatch;
+    const session = await resolveSession(sessionId);
+    if (!session) {
+      return { status: 404, body: { error: "Session not found" } };
+    }
+
+    const capture = (session.captures ?? []).find(
+      (c) => c.id === captureRef || c.filename === captureRef
+    );
+    if (!capture) {
+      return { status: 404, body: { error: "Capture not found" } };
+    }
+
+    if (method === "GET") {
+      try {
+        const file = await readCaptureFile(session.id, capture.filename);
+        return {
+          status: 200,
+          body: null,
+          raw: file,
+          headers: {
+            "Content-Type": capture.mimeType,
+            "Content-Disposition": `inline; filename="${capture.originalName}"`,
+          },
+        };
+      } catch {
+        return { status: 404, body: { error: "Capture file missing" } };
+      }
+    }
+
+    if (method === "DELETE") {
+      await deleteCaptureFile(session.id, capture.filename);
+      const updated: EventSession = {
+        ...session,
+        captures: (session.captures ?? []).filter((c) => c.id !== capture.id),
+        screenshotDescriptions: (session.screenshotDescriptions ?? []).filter(
+          (d) => d !== capture.caption
+        ),
+        updatedAt: new Date().toISOString(),
+      };
+      await saveSession(updated);
+      return {
+        status: 200,
+        body: {
+          session: {
+            ...updated,
+            eventLinkNudge: eventLinkNudge(updated),
+            eventLinkInfo: updated.eventUrl ? parseEventUrl(updated.eventUrl) : null,
+          },
+        },
+      };
+    }
+  }
+
+  const capturePostMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/captures$/);
+  if (capturePostMatch && method === "POST") {
+    const sessionId = capturePostMatch[1];
+    const session = await resolveSession(sessionId);
+    if (!session) {
+      return { status: 404, body: { error: "Session not found" } };
+    }
+
+    const body = parseRequestBody(rawBody) as {
+      filename?: string;
+      mimeType?: string;
+      dataBase64?: string;
+      caption?: string;
+    };
+
+    if (!body.filename?.trim() || !body.mimeType?.trim() || !body.dataBase64?.trim()) {
+      return { status: 400, body: { error: "filename, mimeType, and dataBase64 are required" } };
+    }
+
+    const kind = captureKindFromMime(body.mimeType);
+    if (!kind) {
+      return {
+        status: 400,
+        body: { error: "Only image, audio, and video files are supported" },
+      };
+    }
+
+    let file: Buffer;
+    try {
+      file = Buffer.from(body.dataBase64, "base64");
+    } catch {
+      return { status: 400, body: { error: "Invalid file data" } };
+    }
+
+    if (file.byteLength > MAX_CAPTURE_BYTES) {
+      return { status: 400, body: { error: `File must be under ${MAX_CAPTURE_BYTES / (1024 * 1024)}MB` } };
+    }
+
+    try {
+      const capture = await saveCaptureFile(session.id, file, {
+        filename: body.filename.trim(),
+        mimeType: body.mimeType.trim(),
+        kind,
+        caption: body.caption,
+      });
+
+      const descriptions = [...(session.screenshotDescriptions ?? [])];
+      if (capture.caption) {
+        descriptions.push(capture.caption);
+      } else if (kind === "image") {
+        descriptions.push(`Image: ${capture.originalName}`);
+      }
+
+      const updated: EventSession = {
+        ...session,
+        captures: [...(session.captures ?? []), capture],
+        screenshotDescriptions: descriptions,
+        updatedAt: new Date().toISOString(),
+      };
+      await saveSession(updated);
+
+      return {
+        status: 201,
+        body: {
+          capture,
+          session: {
+            ...updated,
+            eventLinkNudge: eventLinkNudge(updated),
+            eventLinkInfo: updated.eventUrl ? parseEventUrl(updated.eventUrl) : null,
+          },
+        },
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Upload failed";
+      return { status: 400, body: { error: message } };
+    }
   }
 
   if (pathname.startsWith("/api/sessions/") && method === "GET") {
     const id = pathname.replace("/api/sessions/", "");
+    if (id.includes("/")) {
+      return { status: 404, body: { error: "Not found" } };
+    }
     const session = await resolveSession(id);
     if (!session) {
       return { status: 404, body: { error: "Session not found" } };

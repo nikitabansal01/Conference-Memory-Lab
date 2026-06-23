@@ -39,7 +39,7 @@ const server = createServer(async (req, res) => {
   const pathname = url.pathname;
 
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
   if (req.method === "OPTIONS") {
@@ -51,8 +51,16 @@ const server = createServer(async (req, res) => {
   if (pathname.startsWith("/api/")) {
     const body = req.method !== "GET" && req.method !== "HEAD" ? await readBody(req) : undefined;
     const result = await routeApi(req.method ?? "GET", pathname, body);
-    res.writeHead(result.status, { "Content-Type": "application/json; charset=utf-8" });
-    res.end(JSON.stringify(result.body));
+    const headers: Record<string, string> = {
+      "Content-Type": result.raw ? (result.headers?.["Content-Type"] ?? "application/octet-stream") : "application/json; charset=utf-8",
+      ...result.headers,
+    };
+    res.writeHead(result.status, headers);
+    if (result.raw) {
+      res.end(result.raw);
+    } else {
+      res.end(JSON.stringify(result.body));
+    }
     return;
   }
 

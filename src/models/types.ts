@@ -108,6 +108,18 @@ export interface AssumptionChallenge {
   intent: string;
 }
 
+export type CaptureKind = "image" | "audio" | "video";
+
+export interface CaptureFile {
+  id: string;
+  filename: string;
+  originalName: string;
+  mimeType: string;
+  kind: CaptureKind;
+  caption?: string;
+  uploadedAt: string;
+}
+
 export interface EventSession {
   id: string;
   createdAt: string;
@@ -118,6 +130,7 @@ export interface EventSession {
   location?: string;
   rawNotes: string;
   screenshotDescriptions: string[];
+  captures?: CaptureFile[];
   stage: SessionStage;
   trustLevelAtCreation: TrustLevel;
   people: Person[];

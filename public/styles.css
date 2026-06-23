@@ -1640,8 +1640,94 @@ h3 { margin: 0 0 8px; font-size: 1rem; }
 }
 
 .pipe-mini.done { opacity: 0.75; background: var(--accent-soft); border-color: #5eead4; }
-.pipe-mini.active { opacity: 1; background: var(--accent); color: white; border-color: var(--accent); }
+.pipe-mini.stage-current { opacity: 1; background: var(--accent); color: white; border-color: var(--accent); }
 .pipe-mini.next { opacity: 0.9; border-style: dashed; border-color: var(--gold); }
+.pipe-mini.selected {
+  opacity: 1;
+  background: var(--ink);
+  color: white;
+  border-color: var(--ink);
+  border-style: solid;
+}
+
+.attend-capture { margin-bottom: 20px; }
+.attend-capture h3 { margin: 0 0 8px; font-size: 1rem; }
+.attend-notes-field { margin-top: 16px; }
+.attend-save-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.attend-save-status { font-size: 0.82rem; color: var(--muted); }
+.attend-media-section { margin-top: 8px; }
+.attend-media-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.attend-media-head h3 { margin: 0; }
+.attend-extracted {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.attend-extracted summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+.attend-extract-hint { margin-top: 16px; }
+
+.capture-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+.capture-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  background: #fafaf9;
+}
+.capture-thumb {
+  display: block;
+  width: 100%;
+  height: 140px;
+  object-fit: cover;
+  background: #e7e5e4;
+}
+.capture-player {
+  display: block;
+  width: 100%;
+  max-height: 160px;
+  background: #1c1917;
+}
+.capture-meta {
+  padding: 10px 12px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.capture-name {
+  font-size: 0.82rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.capture-kind {
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-transform: capitalize;
+}
+.capture-remove {
+  margin: 4px 8px 8px;
+  font-size: 0.78rem;
+}
 
 .session-quest-bar {
   position: sticky;

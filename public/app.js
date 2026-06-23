@@ -1,6 +1,6 @@
 let dashboardData = null;
 let currentSession = null;
-let defaultTab = "think";
+let activeTab = "think";
 
 const LOOP = [
   { key: "attend", label: "Attend", verb: "Show up & capture", tab: "attend" },
@@ -408,7 +408,7 @@ function linesToArray(text) {
 }
 
 async function openSession(id, tab = "think") {
-  defaultTab = tab;
+  activeTab = tab;
   currentSession = await fetchJson(`/api/sessions/${id}`);
   renderSessionView();
   document.getElementById("view-home").classList.add("hidden");
@@ -446,11 +446,12 @@ function renderSessionView() {
   }
 
   document.getElementById("panel-attend").innerHTML = renderAttend(session);
+  bindAttendPanel(session);
   document.getElementById("panel-think").innerHTML = renderThink(session);
   document.getElementById("panel-connect").innerHTML = renderConnect(session);
   document.getElementById("panel-create").innerHTML = renderCreate(session);
   document.getElementById("panel-review").innerHTML = renderReview(session);
-  setActiveTab(defaultTab);
+  setActiveTab(activeTab);
 }
 
 function renderSessionPipeline(session) {
@@ -459,9 +460,10 @@ function renderSessionPipeline(session) {
   el.innerHTML = LOOP.map((step, i) => {
     let state = "upcoming";
     if (i < loopIdx) state = "done";
-    else if (i === loopIdx) state = "active";
+    else if (i === loopIdx) state = "stage-current";
     else if (i === loopIdx + 1) state = "next";
-    return `<button type="button" class="pipe-mini ${state}" data-tab="${step.tab}" role="tab">${step.label}</button>`;
+    const selected = step.tab === activeTab ? " selected" : "";
+    return `<button type="button" class="pipe-mini ${state}${selected}" data-tab="${step.tab}" role="tab" aria-selected="${step.tab === activeTab}">${step.label}</button>`;
   }).join("");
   el.querySelectorAll(".pipe-mini").forEach((btn) => {
     btn.addEventListener("click", () => setActiveTab(btn.dataset.tab));
@@ -503,6 +505,12 @@ function renderSessionQuestBar(session) {
 }
 
 function setActiveTab(tab) {
+  activeTab = tab;
+  document.querySelectorAll(".pipe-mini").forEach((btn) => {
+    const isSelected = btn.dataset.tab === tab;
+    btn.classList.toggle("selected", isSelected);
+    btn.setAttribute("aria-selected", String(isSelected));
+  });
   document.querySelectorAll(".panel").forEach((p) => p.classList.remove("active"));
   document.getElementById(`panel-${tab}`)?.classList.add("active");
 }
@@ -510,18 +518,196 @@ function setActiveTab(tab) {
 function renderAttend(session) {
   const people = session.people ?? [];
   const claims = session.claims ?? [];
+  const captures = session.captures ?? [];
+  const hasExtracted = people.length > 0 || claims.length > 0;
+
   return `
-    <p class="field-hint">What you captured by showing up — people, claims, themes.</p>
-    <div class="grid-2">
-      <div>
-        <h3>People</h3>
-        ${people.length ? people.map((p) => `<div class="entity"><strong>${escapeHtml(p.name)}</strong><span class="muted"> · ${escapeHtml(p.role)}</span></div>`).join("") : '<p class="empty">Process your notes to extract people.</p>'}
+    <section class="attend-capture">
+      <h3>Your capture</h3>
+      <p class="field-hint">Dump rough notes, learnings, photos, voice memos, or video from the event. Everything stays on your machine.</p>
+
+      <label class="field attend-notes-field">
+        <span>Notes & learnings</span>
+        <textarea id="attend-notes" rows="10" placeholder="Who you met, what stood out, half-formed ideas…">${escapeHtml(session.rawNotes ?? "")}</textarea>
+      </label>
+      <div class="attend-save-row">
+        <button type="button" class="btn btn-small" id="btn-save-attend-notes">Save notes</button>
+        <span class="attend-save-status" id="attend-save-status" aria-live="polite"></span>
       </div>
-      <div>
-        <h3>Claims</h3>
-        ${claims.length ? claims.slice(0, 4).map((c) => `<div class="claim"><div>${escapeHtml(c.text.replace("[non-obvious] ", ""))}</div></div>`).join("") : '<p class="empty">No claims yet.</p>'}
+
+      <div class="attend-media-section">
+        <div class="attend-media-head">
+          <h3>Photos, audio & video</h3>
+          <button type="button" class="btn btn-small btn-ghost" id="btn-attend-upload">+ Add files</button>
+        </div>
+        <input type="file" id="attend-file-input" accept="image/*,audio/*,video/*" multiple hidden />
+        <p class="field-hint">Images, voice memos, and short clips up to 15MB each.</p>
+        <div class="capture-grid" id="attend-captures">
+          ${captures.length ? captures.map((c) => renderCaptureCard(session.id, c)).join("") : '<p class="empty" id="attend-captures-empty">No media yet — add photos or recordings from the event.</p>'}
+        </div>
+        <p class="field-hint" id="attend-upload-status" aria-live="polite"></p>
       </div>
+    </section>
+
+    ${hasExtracted ? `
+    <details class="attend-extracted">
+      <summary>Extracted memory (${people.length} people, ${claims.length} claims)</summary>
+      <div class="grid-2" style="margin-top:14px">
+        <div>
+          <h3>People</h3>
+          ${people.map((p) => `<div class="entity"><strong>${escapeHtml(p.name)}</strong><span class="muted"> · ${escapeHtml(p.role)}</span></div>`).join("")}
+        </div>
+        <div>
+          <h3>Claims</h3>
+          ${claims.slice(0, 6).map((c) => `<div class="claim"><div>${escapeHtml(c.text.replace("[non-obvious] ", ""))}</div></div>`).join("")}
+        </div>
+      </div>
+    </details>` : `
+    <p class="field-hint attend-extract-hint">After you save notes, run Remember in the CLI to extract people and claims.</p>`}`;
+}
+
+function captureUrl(sessionId, captureId) {
+  return `/api/sessions/${sessionId}/captures/${captureId}`;
+}
+
+function renderCaptureCard(sessionId, capture) {
+  const url = captureUrl(sessionId, capture.id);
+  const label = escapeHtml(capture.caption || capture.originalName);
+  let media = "";
+  if (capture.kind === "image") {
+    media = `<img class="capture-thumb" src="${url}" alt="${label}" loading="lazy" />`;
+  } else if (capture.kind === "audio") {
+    media = `<audio class="capture-player" controls preload="metadata" src="${url}"></audio>`;
+  } else {
+    media = `<video class="capture-player" controls preload="metadata" src="${url}"></video>`;
+  }
+  return `
+    <div class="capture-card" data-capture-id="${escapeHtml(capture.id)}">
+      ${media}
+      <div class="capture-meta">
+        <span class="capture-name">${label}</span>
+        <span class="capture-kind">${escapeHtml(capture.kind)}</span>
+      </div>
+      <button type="button" class="btn btn-text capture-remove" data-remove-capture="${escapeHtml(capture.id)}">Remove</button>
     </div>`;
+}
+
+function bindAttendPanel(session) {
+  const panel = document.getElementById("panel-attend");
+  if (!panel) return;
+
+  const notesEl = panel.querySelector("#attend-notes");
+  const statusEl = panel.querySelector("#attend-save-status");
+  const uploadStatusEl = panel.querySelector("#attend-upload-status");
+  const fileInput = panel.querySelector("#attend-file-input");
+
+  async function saveNotes() {
+    if (!notesEl) return;
+    statusEl.textContent = "Saving…";
+    try {
+      const data = await fetchJson(`/api/sessions/${session.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rawNotes: notesEl.value }),
+      });
+      currentSession = data.session;
+      statusEl.textContent = "Saved";
+      setTimeout(() => {
+        if (statusEl.textContent === "Saved") statusEl.textContent = "";
+      }, 2000);
+    } catch (err) {
+      statusEl.textContent = err.message ?? "Save failed";
+    }
+  }
+
+  panel.querySelector("#btn-save-attend-notes")?.addEventListener("click", saveNotes);
+  notesEl?.addEventListener("blur", () => {
+    if (notesEl.value !== (currentSession?.rawNotes ?? "")) saveNotes();
+  });
+
+  panel.querySelector("#btn-attend-upload")?.addEventListener("click", () => fileInput?.click());
+
+  fileInput?.addEventListener("change", async () => {
+    const files = Array.from(fileInput.files ?? []);
+    fileInput.value = "";
+    if (!files.length) return;
+
+    uploadStatusEl.textContent = `Uploading ${files.length} file${files.length > 1 ? "s" : ""}…`;
+    let uploaded = 0;
+
+    for (const file of files) {
+      if (!file.type.startsWith("image/") && !file.type.startsWith("audio/") && !file.type.startsWith("video/")) {
+        uploadStatusEl.textContent = `Skipped ${file.name} — only images, audio, and video are supported.`;
+        continue;
+      }
+      if (file.size > 15 * 1024 * 1024) {
+        uploadStatusEl.textContent = `${file.name} is over 15MB — try a shorter clip or smaller image.`;
+        continue;
+      }
+
+      try {
+        const dataBase64 = await fileToBase64(file);
+        const caption =
+          files.length === 1
+            ? window.prompt(`Optional caption for ${file.name}`, "") ?? ""
+            : "";
+        const data = await fetchJson(`/api/sessions/${session.id}/captures`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            filename: file.name,
+            mimeType: file.type,
+            dataBase64,
+            caption,
+          }),
+        });
+        currentSession = data.session;
+        uploaded += 1;
+      } catch (err) {
+        uploadStatusEl.textContent = err.message ?? `Failed to upload ${file.name}`;
+        break;
+      }
+    }
+
+    if (uploaded > 0) {
+      document.getElementById("panel-attend").innerHTML = renderAttend(currentSession);
+      bindAttendPanel(currentSession);
+      uploadStatusEl.textContent =
+        uploaded === files.length
+          ? `Added ${uploaded} file${uploaded > 1 ? "s" : ""}.`
+          : `Added ${uploaded} of ${files.length} files.`;
+    }
+  });
+
+  panel.querySelectorAll("[data-remove-capture]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const captureId = btn.dataset.removeCapture;
+      if (!captureId || !window.confirm("Remove this file from your capture?")) return;
+      try {
+        const data = await fetchJson(`/api/sessions/${session.id}/captures/${captureId}`, {
+          method: "DELETE",
+        });
+        currentSession = data.session;
+        document.getElementById("panel-attend").innerHTML = renderAttend(currentSession);
+        bindAttendPanel(currentSession);
+      } catch (err) {
+        uploadStatusEl.textContent = err.message ?? "Remove failed";
+      }
+    });
+  });
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result ?? "");
+      const base64 = result.includes(",") ? result.split(",")[1] : result;
+      resolve(base64);
+    };
+    reader.onerror = () => reject(new Error("Could not read file"));
+    reader.readAsDataURL(file);
+  });
 }
 
 function renderThink(session) {
@@ -633,9 +819,20 @@ function handleNav(nav) {
       if (session) openSession(session.id, "attend");
       else openEventModal();
       break;
-    case "think":
-      document.getElementById("capabilities-card")?.scrollIntoView({ behavior: "smooth" });
+    case "think": {
+      const openThink = (sessionId) => openSession(sessionId, "think");
+      const sessionId = currentSession?.id ?? dashboardData?.featuredSession?.id;
+      if (sessionId) {
+        openThink(sessionId);
+      } else {
+        loadDashboard().then(() => {
+          const id = dashboardData?.featuredSession?.id;
+          if (id) openThink(id);
+          else openEventModal();
+        });
+      }
       break;
+    }
     case "drafts":
       if (session) openSession(session.id, "create");
       else openEventModal();
