@@ -9,3 +9,4 @@ data/progress.json
 profile/profile.json
 profile/resume.md
 *.local.json
+.vercel
