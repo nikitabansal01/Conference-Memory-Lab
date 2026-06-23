@@ -83,6 +83,7 @@ function renderHome() {
   document.getElementById("view-session").classList.add("hidden");
   document.getElementById("main-topbar").classList.remove("hidden");
   document.getElementById("sidebar").classList.remove("collapsed");
+  setSidebarNavActive("home");
   closeMobileMenu();
 }
 
@@ -815,51 +816,37 @@ function escapeHtml(str) {
     .replace(/"/g, "&quot;");
 }
 
+function setSidebarNavActive(nav) {
+  document.querySelectorAll(".nav-item").forEach((item) => {
+    item.classList.toggle("active", item.dataset.nav === nav);
+  });
+}
+
+async function ensureHomeView() {
+  if (document.getElementById("view-home").classList.contains("hidden")) {
+    await loadDashboard();
+  }
+}
+
 function handleNav(nav) {
-  const session = dashboardData?.featuredSession;
   switch (nav) {
     case "home":
       loadDashboard();
       break;
     case "events":
-      document.getElementById("memory-timeline")?.scrollIntoView({ behavior: "smooth" });
+      ensureHomeView().then(() => {
+        setSidebarNavActive("events");
+        document.getElementById("memory-timeline")?.scrollIntoView({ behavior: "smooth" });
+      });
       break;
-    case "people":
-      if (session) openSession(session.id, "attend");
-      else openEventModal();
-      break;
-    case "think": {
-      const openThink = (sessionId) => openSession(sessionId, "think");
-      const sessionId = currentSession?.id ?? dashboardData?.featuredSession?.id;
-      if (sessionId) {
-        openThink(sessionId);
-      } else {
-        loadDashboard().then(() => {
-          const id = dashboardData?.featuredSession?.id;
-          if (id) openThink(id);
-          else openEventModal();
-        });
-      }
-      break;
-    }
-    case "drafts":
-      if (session) openSession(session.id, "create");
-      else openEventModal();
-      break;
-    case "followups":
-      if (session) openSession(session.id, "connect");
-      else openEventModal();
-      break;
-    case "eval":
-      if (session) openSession(session.id, "review");
-      else openEventModal();
-      break;
-    case "settings":
+    case "lens":
       openLensModal();
       break;
     case "help":
-      renderBottomBanner();
-      document.getElementById("bottom-banner")?.scrollIntoView({ behavior: "smooth" });
+      ensureHomeView().then(() => {
+        renderBottomBanner();
+        document.getElementById("bottom-banner")?.scrollIntoView({ behavior: "smooth" });
+      });
       break;
   }
 }
@@ -890,8 +877,6 @@ document.getElementById("sidebar-toggle").addEventListener("click", toggleMobile
 
 document.querySelectorAll(".sidebar-nav .nav-item, .sidebar-foot .nav-item").forEach((btn) => {
   btn.addEventListener("click", () => {
-    document.querySelectorAll(".nav-item").forEach((n) => n.classList.remove("active"));
-    if (btn.dataset.nav === "home") btn.classList.add("active");
     closeMobileMenu();
     handleNav(btn.dataset.nav);
   });
