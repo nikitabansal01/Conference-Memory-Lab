@@ -83,6 +83,7 @@ function renderHome() {
   document.getElementById("view-session").classList.add("hidden");
   document.getElementById("main-topbar").classList.remove("hidden");
   document.getElementById("sidebar").classList.remove("collapsed");
+  closeMobileMenu();
 }
 
 function firstName(name) {
@@ -860,10 +861,30 @@ document.getElementById("btn-cancel-event").addEventListener("click", () => docu
 document.getElementById("btn-cancel-lens").addEventListener("click", () => document.getElementById("modal-lens").close());
 document.getElementById("btn-cancel-link").addEventListener("click", () => document.getElementById("modal-link").close());
 document.getElementById("btn-back").addEventListener("click", () => loadDashboard());
+
+function closeMobileMenu() {
+  const sidebar = document.getElementById("sidebar");
+  const toggle = document.getElementById("sidebar-toggle");
+  sidebar.classList.remove("menu-open");
+  toggle.setAttribute("aria-expanded", "false");
+  toggle.setAttribute("aria-label", "Open menu");
+}
+
+function toggleMobileMenu() {
+  const sidebar = document.getElementById("sidebar");
+  const toggle = document.getElementById("sidebar-toggle");
+  const isOpen = sidebar.classList.toggle("menu-open");
+  toggle.setAttribute("aria-expanded", String(isOpen));
+  toggle.setAttribute("aria-label", isOpen ? "Close menu" : "Open menu");
+}
+
+document.getElementById("sidebar-toggle").addEventListener("click", toggleMobileMenu);
+
 document.querySelectorAll(".sidebar-nav .nav-item, .sidebar-foot .nav-item").forEach((btn) => {
   btn.addEventListener("click", () => {
     document.querySelectorAll(".nav-item").forEach((n) => n.classList.remove("active"));
     if (btn.dataset.nav === "home") btn.classList.add("active");
+    closeMobileMenu();
     handleNav(btn.dataset.nav);
   });
 });

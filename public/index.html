@@ -12,14 +12,21 @@
 <body>
   <div class="app-layout">
     <aside class="sidebar" id="sidebar">
-      <div class="sidebar-brand">
-        <span class="brand-mark" aria-hidden="true"></span>
-        <div>
-          <strong>Conference Memory Lab</strong>
-          <span class="brand-tag">Thought partner workspace</span>
+      <div class="sidebar-header">
+        <div class="sidebar-brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <div>
+            <strong>Conference Memory Lab</strong>
+            <span class="brand-tag">Thought partner workspace</span>
+          </div>
         </div>
+        <button type="button" class="sidebar-toggle" id="sidebar-toggle" aria-expanded="false" aria-controls="sidebar-nav" aria-label="Open menu">
+          <span class="sidebar-toggle-bar" aria-hidden="true"></span>
+          <span class="sidebar-toggle-bar" aria-hidden="true"></span>
+          <span class="sidebar-toggle-bar" aria-hidden="true"></span>
+        </button>
       </div>
-      <nav class="sidebar-nav" aria-label="Main">
+      <nav class="sidebar-nav" id="sidebar-nav" aria-label="Main">
         <button type="button" class="nav-item active" data-nav="home">Home</button>
         <button type="button" class="nav-item" data-nav="events">Events</button>
         <button type="button" class="nav-item" data-nav="people">People</button>
