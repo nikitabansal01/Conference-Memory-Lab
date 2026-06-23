@@ -118,6 +118,7 @@ export interface CaptureFile {
   kind: CaptureKind;
   caption?: string;
   uploadedAt: string;
+  blobUrl?: string;
 }
 
 export interface EventSession {

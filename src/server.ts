@@ -51,16 +51,26 @@ const server = createServer(async (req, res) => {
   if (pathname.startsWith("/api/")) {
     const body = req.method !== "GET" && req.method !== "HEAD" ? await readBody(req) : undefined;
     const result = await routeApi(req.method ?? "GET", pathname, body);
-    const headers: Record<string, string> = {
-      "Content-Type": result.raw ? (result.headers?.["Content-Type"] ?? "application/octet-stream") : "application/json; charset=utf-8",
-      ...result.headers,
-    };
-    res.writeHead(result.status, headers);
-    if (result.raw) {
-      res.end(result.raw);
-    } else {
-      res.end(JSON.stringify(result.body));
+    const headers: Record<string, string> = { ...result.headers };
+
+    if (result.status >= 300 && result.status < 400 && result.headers?.Location) {
+      res.writeHead(result.status, headers);
+      res.end();
+      return;
     }
+
+    if (result.raw) {
+      if (result.headers?.["Content-Type"]) {
+        headers["Content-Type"] = result.headers["Content-Type"];
+      }
+      res.writeHead(result.status, headers);
+      res.end(result.raw);
+      return;
+    }
+
+    headers["Content-Type"] = "application/json; charset=utf-8";
+    res.writeHead(result.status, headers);
+    res.end(JSON.stringify(result.body));
     return;
   }
 

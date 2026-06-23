@@ -1,10 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { writeFile, mkdir, unlink, readFile } from "node:fs/promises";
 import { join, extname } from "node:path";
+import { del, put } from "@vercel/blob";
 import type { CaptureFile, CaptureKind } from "../models/types.js";
 import { SESSIONS_DIR } from "./storage.js";
 
 const MAX_CAPTURE_BYTES = 15 * 1024 * 1024;
+
+export function hasBlobStorage(): boolean {
+  return Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+}
 
 export function capturesDir(sessionId: string): string {
   return join(SESSIONS_DIR, sessionId, "captures");
@@ -29,6 +34,27 @@ export async function saveCaptureFile(
   const id = randomUUID();
   const ext = extname(meta.filename) || extFromMime(meta.mimeType);
   const storedName = `${id}${ext}`;
+
+  if (hasBlobStorage()) {
+    const pathname = `captures/${sessionId}/${storedName}`;
+    const blob = await put(pathname, file, {
+      access: "public",
+      contentType: meta.mimeType,
+      token: process.env.BLOB_READ_WRITE_TOKEN,
+    });
+
+    return {
+      id,
+      filename: storedName,
+      originalName: meta.filename,
+      mimeType: meta.mimeType,
+      kind: meta.kind,
+      caption: meta.caption?.trim() || undefined,
+      uploadedAt: new Date().toISOString(),
+      blobUrl: blob.url,
+    };
+  }
+
   const dir = capturesDir(sessionId);
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, storedName), file);
@@ -65,9 +91,14 @@ export async function readCaptureFile(sessionId: string, filename: string): Prom
   return readFile(join(capturesDir(sessionId), filename));
 }
 
-export async function deleteCaptureFile(sessionId: string, filename: string): Promise<void> {
+export async function deleteCaptureFile(capture: CaptureFile, sessionId: string): Promise<void> {
+  if (capture.blobUrl && hasBlobStorage()) {
+    await del(capture.blobUrl, { token: process.env.BLOB_READ_WRITE_TOKEN });
+    return;
+  }
+
   try {
-    await unlink(join(capturesDir(sessionId), filename));
+    await unlink(join(capturesDir(sessionId), capture.filename));
   } catch {
     // File may already be gone
   }

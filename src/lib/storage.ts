@@ -3,6 +3,14 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { EventSession, ExpertiseProfile, UserProgress } from "../models/types.js";
 import { emptyProgress } from "./session.js";
+import {
+  hasDatabase,
+  dbSaveSession,
+  dbLoadSession,
+  dbListSessions,
+  dbLoadState,
+  dbSaveState,
+} from "./db.js";
 
 function resolveRoot(): string {
   if (process.env.VERCEL) return process.cwd();
@@ -10,14 +18,14 @@ function resolveRoot(): string {
 }
 
 const ROOT = resolveRoot();
-const WRITABLE_ROOT = process.env.VERCEL ? join("/tmp", "cml-data") : ROOT;
+const WRITABLE_ROOT = process.env.VERCEL && !hasDatabase() ? join("/tmp", "cml-data") : ROOT;
 
 export const DATA_DIR = join(WRITABLE_ROOT, "data");
 export const SESSIONS_DIR = join(DATA_DIR, "sessions");
 export const PROGRESS_FILE = join(DATA_DIR, "progress.json");
-export const PROFILE_FILE = process.env.VERCEL
-  ? join(WRITABLE_ROOT, "profile.json")
-  : join(ROOT, "profile", "profile.json");
+export const PROFILE_FILE = hasDatabase()
+  ? join(ROOT, "profile", "profile.json")
+  : join(WRITABLE_ROOT, "profile", "profile.json");
 export const PROFILE_EXAMPLE = join(ROOT, "profile", "profile.example.json");
 export const RESUME_FILE = join(ROOT, "profile", "resume.md");
 
@@ -26,6 +34,12 @@ async function ensureDataDirs(): Promise<void> {
 }
 
 export async function loadProgress(): Promise<UserProgress> {
+  if (hasDatabase()) {
+    const data = await dbLoadState("progress");
+    if (data) return data as UserProgress;
+    return emptyProgress();
+  }
+
   await ensureDataDirs();
   try {
     const raw = await readFile(PROGRESS_FILE, "utf-8");
@@ -36,17 +50,32 @@ export async function loadProgress(): Promise<UserProgress> {
 }
 
 export async function saveProgress(progress: UserProgress): Promise<void> {
+  if (hasDatabase()) {
+    await dbSaveState("progress", progress);
+    return;
+  }
+
   await ensureDataDirs();
   await writeFile(PROGRESS_FILE, JSON.stringify(progress, null, 2));
 }
 
 export async function saveSession(session: EventSession): Promise<void> {
+  if (hasDatabase()) {
+    await dbSaveSession(session, session.id, session.createdAt, session.updatedAt);
+    return;
+  }
+
   await ensureDataDirs();
   const path = join(SESSIONS_DIR, `${session.id}.json`);
   await writeFile(path, JSON.stringify(session, null, 2));
 }
 
 export async function loadSession(id: string): Promise<EventSession | null> {
+  if (hasDatabase()) {
+    const data = await dbLoadSession(id);
+    return data ? (data as EventSession) : null;
+  }
+
   try {
     const raw = await readFile(join(SESSIONS_DIR, `${id}.json`), "utf-8");
     return JSON.parse(raw) as EventSession;
@@ -56,6 +85,11 @@ export async function loadSession(id: string): Promise<EventSession | null> {
 }
 
 export async function listSessions(): Promise<EventSession[]> {
+  if (hasDatabase()) {
+    const rows = await dbListSessions();
+    return rows as EventSession[];
+  }
+
   await ensureDataDirs();
   try {
     const files = await readdir(SESSIONS_DIR);
@@ -73,6 +107,11 @@ export async function listSessions(): Promise<EventSession[]> {
 }
 
 export async function loadProfile(): Promise<ExpertiseProfile | null> {
+  if (hasDatabase()) {
+    const data = await dbLoadState("profile");
+    return data ? (data as ExpertiseProfile) : null;
+  }
+
   try {
     const raw = await readFile(PROFILE_FILE, "utf-8");
     return JSON.parse(raw) as ExpertiseProfile;
@@ -89,6 +128,11 @@ export async function loadProfileOrExample(): Promise<ExpertiseProfile> {
 }
 
 export async function saveProfile(profile: ExpertiseProfile): Promise<void> {
+  if (hasDatabase()) {
+    await dbSaveState("profile", profile);
+    return;
+  }
+
   await mkdir(dirname(PROFILE_FILE), { recursive: true });
   await writeFile(PROFILE_FILE, JSON.stringify(profile, null, 2));
 }

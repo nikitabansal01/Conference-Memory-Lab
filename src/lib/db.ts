@@ -1,0 +1,100 @@
+import { neon, neonConfig, type NeonQueryFunction } from "@neondatabase/serverless";
+
+neonConfig.fetchConnectionCache = true;
+
+let sql: NeonQueryFunction<false, false> | null = null;
+let schemaReady: Promise<void> | null = null;
+
+export function getDatabaseUrl(): string | undefined {
+  return (
+    process.env.DATABASE_URL ??
+    process.env.POSTGRES_URL ??
+    process.env.POSTGRES_PRISMA_URL
+  );
+}
+
+export function hasDatabase(): boolean {
+  return Boolean(getDatabaseUrl());
+}
+
+function getSql(): NeonQueryFunction<false, false> {
+  const url = getDatabaseUrl();
+  if (!url) throw new Error("DATABASE_URL is not configured");
+  if (!sql) sql = neon(url);
+  return sql;
+}
+
+export async function ensureSchema(): Promise<void> {
+  if (!hasDatabase()) return;
+  if (!schemaReady) {
+    schemaReady = (async () => {
+      const query = getSql();
+      await query`
+        CREATE TABLE IF NOT EXISTS sessions (
+          id TEXT PRIMARY KEY,
+          data JSONB NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL,
+          updated_at TIMESTAMPTZ NOT NULL
+        )
+      `;
+      await query`
+        CREATE TABLE IF NOT EXISTS app_state (
+          key TEXT PRIMARY KEY,
+          data JSONB NOT NULL,
+          updated_at TIMESTAMPTZ NOT NULL
+        )
+      `;
+    })();
+  }
+  await schemaReady;
+}
+
+export async function dbSaveSession(session: unknown, id: string, createdAt: string, updatedAt: string): Promise<void> {
+  await ensureSchema();
+  const query = getSql();
+  const payload = JSON.stringify(session);
+  await query`
+    INSERT INTO sessions (id, data, created_at, updated_at)
+    VALUES (${id}, ${payload}::jsonb, ${createdAt}, ${updatedAt})
+    ON CONFLICT (id) DO UPDATE SET
+      data = EXCLUDED.data,
+      updated_at = EXCLUDED.updated_at
+  `;
+}
+
+export async function dbLoadSession(id: string): Promise<unknown | null> {
+  await ensureSchema();
+  const query = getSql();
+  const rows = await query`SELECT data FROM sessions WHERE id = ${id} LIMIT 1`;
+  if (!rows.length) return null;
+  return rows[0].data;
+}
+
+export async function dbListSessions(): Promise<unknown[]> {
+  await ensureSchema();
+  const query = getSql();
+  const rows = await query`SELECT data FROM sessions ORDER BY updated_at DESC`;
+  return rows.map((row) => row.data);
+}
+
+export async function dbLoadState(key: string): Promise<unknown | null> {
+  await ensureSchema();
+  const query = getSql();
+  const rows = await query`SELECT data FROM app_state WHERE key = ${key} LIMIT 1`;
+  if (!rows.length) return null;
+  return rows[0].data;
+}
+
+export async function dbSaveState(key: string, data: unknown): Promise<void> {
+  await ensureSchema();
+  const query = getSql();
+  const payload = JSON.stringify(data);
+  const updatedAt = new Date().toISOString();
+  await query`
+    INSERT INTO app_state (key, data, updated_at)
+    VALUES (${key}, ${payload}::jsonb, ${updatedAt})
+    ON CONFLICT (key) DO UPDATE SET
+      data = EXCLUDED.data,
+      updated_at = EXCLUDED.updated_at
+  `;
+}

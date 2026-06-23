@@ -353,6 +353,14 @@ export async function routeApi(
     }
 
     if (method === "GET") {
+      if (capture.blobUrl) {
+        return {
+          status: 302,
+          body: null,
+          headers: { Location: capture.blobUrl },
+        };
+      }
+
       try {
         const file = await readCaptureFile(session.id, capture.filename);
         return {
@@ -370,7 +378,7 @@ export async function routeApi(
     }
 
     if (method === "DELETE") {
-      await deleteCaptureFile(session.id, capture.filename);
+      await deleteCaptureFile(capture, session.id);
       const updated: EventSession = {
         ...session,
         captures: (session.captures ?? []).filter((c) => c.id !== capture.id),

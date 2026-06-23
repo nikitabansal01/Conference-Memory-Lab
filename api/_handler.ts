@@ -24,6 +24,16 @@ export async function handleApiRoute(
     const headers: Record<string, string> = {
       ...result.headers,
     };
+
+    if (result.status >= 300 && result.status < 400 && result.headers?.Location) {
+      res.status(result.status);
+      for (const [key, value] of Object.entries(headers)) {
+        res.setHeader(key, value);
+      }
+      res.end();
+      return;
+    }
+
     if (result.raw) {
       if (result.headers?.["Content-Type"]) {
         headers["Content-Type"] = result.headers["Content-Type"];
