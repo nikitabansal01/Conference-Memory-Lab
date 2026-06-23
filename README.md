@@ -36,7 +36,7 @@ Capabilities unlock as you use the product — draft review before publish, inte
 | **L5** | Networker | Event link parsing, connection drafts |
 | **L6** | Autopilot | Multi-platform schedule, audit log |
 
-See [specs/product-direction.md](specs/product-direction.md) for UI/UX direction.
+See [specs/architecture-and-roadmap.md](specs/architecture-and-roadmap.md) for architecture, tech stack, and MVP/P0–P4 priorities. See [specs/product-direction.md](specs/product-direction.md) for UI/UX direction.
 
 ## Quick start
 

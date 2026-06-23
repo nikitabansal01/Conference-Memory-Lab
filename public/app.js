@@ -43,9 +43,27 @@ const ACTION_ICON = {
   reflect: "→",
 };
 
+async function fetchJson(url, options) {
+  const res = await fetch(url, options);
+  const text = await res.text();
+  let data;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    throw new Error(
+      res.ok
+        ? "Server returned invalid JSON"
+        : `API error (${res.status}): ${text.slice(0, 120)}`
+    );
+  }
+  if (!res.ok) {
+    throw new Error(data?.error ?? `Request failed (${res.status})`);
+  }
+  return data;
+}
+
 async function loadDashboard() {
-  const res = await fetch("/api/dashboard");
-  dashboardData = await res.json();
+  dashboardData = await fetchJson("/api/dashboard");
   renderHome();
 }
 
@@ -368,8 +386,7 @@ function formatWhenLabel(iso) {
 }
 
 async function openLensModal() {
-  const res = await fetch("/api/profile");
-  const profile = await res.json();
+  const profile = await fetchJson("/api/profile");
   const form = document.getElementById("form-lens");
   form.name.value = profile.name ?? "";
   form.tagline.value = profile.tagline ?? "";
@@ -392,8 +409,7 @@ function linesToArray(text) {
 
 async function openSession(id, tab = "think") {
   defaultTab = tab;
-  const res = await fetch(`/api/sessions/${id}`);
-  currentSession = await res.json();
+  currentSession = await fetchJson(`/api/sessions/${id}`);
   renderSessionView();
   document.getElementById("view-home").classList.add("hidden");
   document.getElementById("view-session").classList.remove("hidden");
@@ -445,7 +461,7 @@ function renderSessionPipeline(session) {
     if (i < loopIdx) state = "done";
     else if (i === loopIdx) state = "active";
     else if (i === loopIdx + 1) state = "next";
-    return `<button type="button" class="pipe-mini ${state}" data-tab="${step.tab}">${step.label}</button>`;
+    return `<button type="button" class="pipe-mini ${state}" data-tab="${step.tab}" role="tab">${step.label}</button>`;
   }).join("");
   el.querySelectorAll(".pipe-mini").forEach((btn) => {
     btn.addEventListener("click", () => setActiveTab(btn.dataset.tab));
@@ -487,7 +503,6 @@ function renderSessionQuestBar(session) {
 }
 
 function setActiveTab(tab) {
-  document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === tab));
   document.querySelectorAll(".panel").forEach((p) => p.classList.remove("active"));
   document.getElementById(`panel-${tab}`)?.classList.add("active");
 }
@@ -648,8 +663,6 @@ document.getElementById("btn-cancel-event").addEventListener("click", () => docu
 document.getElementById("btn-cancel-lens").addEventListener("click", () => document.getElementById("modal-lens").close());
 document.getElementById("btn-cancel-link").addEventListener("click", () => document.getElementById("modal-link").close());
 document.getElementById("btn-back").addEventListener("click", () => loadDashboard());
-document.querySelectorAll(".tab").forEach((tab) => tab.addEventListener("click", () => setActiveTab(tab.dataset.tab)));
-
 document.querySelectorAll(".sidebar-nav .nav-item, .sidebar-foot .nav-item").forEach((btn) => {
   btn.addEventListener("click", () => {
     document.querySelectorAll(".nav-item").forEach((n) => n.classList.remove("active"));

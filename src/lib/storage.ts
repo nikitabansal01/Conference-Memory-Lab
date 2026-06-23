@@ -4,11 +4,20 @@ import { fileURLToPath } from "node:url";
 import type { EventSession, ExpertiseProfile, UserProgress } from "../models/types.js";
 import { emptyProgress } from "./session.js";
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-export const DATA_DIR = join(ROOT, "data");
+function resolveRoot(): string {
+  if (process.env.VERCEL) return process.cwd();
+  return join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+}
+
+const ROOT = resolveRoot();
+const WRITABLE_ROOT = process.env.VERCEL ? join("/tmp", "cml-data") : ROOT;
+
+export const DATA_DIR = join(WRITABLE_ROOT, "data");
 export const SESSIONS_DIR = join(DATA_DIR, "sessions");
 export const PROGRESS_FILE = join(DATA_DIR, "progress.json");
-export const PROFILE_FILE = join(ROOT, "profile", "profile.json");
+export const PROFILE_FILE = process.env.VERCEL
+  ? join(WRITABLE_ROOT, "profile.json")
+  : join(ROOT, "profile", "profile.json");
 export const PROFILE_EXAMPLE = join(ROOT, "profile", "profile.example.json");
 export const RESUME_FILE = join(ROOT, "profile", "resume.md");
 
@@ -80,8 +89,29 @@ export async function loadProfileOrExample(): Promise<ExpertiseProfile> {
 }
 
 export async function saveProfile(profile: ExpertiseProfile): Promise<void> {
-  await mkdir(join(ROOT, "profile"), { recursive: true });
+  await mkdir(dirname(PROFILE_FILE), { recursive: true });
   await writeFile(PROFILE_FILE, JSON.stringify(profile, null, 2));
+}
+
+export async function loadExampleSession(): Promise<EventSession | null> {
+  try {
+    const raw = await readFile(join(ROOT, "examples/pipeline/full-session.json"), "utf-8");
+    return JSON.parse(raw) as EventSession;
+  } catch {
+    return null;
+  }
+}
+
+export async function resolveSession(id: string): Promise<EventSession | null> {
+  const sessions = await listSessions();
+  const local = sessions.find((s) => s.id.startsWith(id)) ?? (await loadSession(id));
+  if (local) return local;
+
+  const example = await loadExampleSession();
+  if (example && (example.id.startsWith(id) || id.startsWith(example.id.slice(0, 8)))) {
+    return example;
+  }
+  return null;
 }
 
 export async function loadResume(): Promise<string | null> {
