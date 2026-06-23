@@ -21,6 +21,20 @@ export async function handleApiRoute(
 
   try {
     const result = await routeApi(req.method ?? "GET", pathname, req.body);
+    const headers: Record<string, string> = {
+      ...result.headers,
+    };
+    if (result.raw) {
+      if (result.headers?.["Content-Type"]) {
+        headers["Content-Type"] = result.headers["Content-Type"];
+      }
+      res.status(result.status);
+      for (const [key, value] of Object.entries(headers)) {
+        res.setHeader(key, value);
+      }
+      res.end(result.raw);
+      return;
+    }
     res.status(result.status).json(result.body);
   } catch (err) {
     console.error(`API error [${pathname}]:`, err);

@@ -409,12 +409,16 @@ function linesToArray(text) {
 }
 
 async function openSession(id, tab = "think") {
-  activeTab = tab;
-  currentSession = await fetchJson(`/api/sessions/${id}`);
-  renderSessionView();
-  document.getElementById("view-home").classList.add("hidden");
-  document.getElementById("view-session").classList.remove("hidden");
-  document.getElementById("main-topbar").classList.add("hidden");
+  try {
+    activeTab = tab;
+    currentSession = await fetchJson(`/api/sessions/${id}`);
+    renderSessionView();
+    document.getElementById("view-home").classList.add("hidden");
+    document.getElementById("view-session").classList.remove("hidden");
+    document.getElementById("main-topbar").classList.add("hidden");
+  } catch (err) {
+    alert(err instanceof Error ? err.message : "Could not open session");
+  }
 }
 
 function renderSessionView() {
