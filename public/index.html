@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Conference Memory Lab</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="app-layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <div>
+          <strong>Conference Memory Lab</strong>
+          <span class="brand-tag">Thought partner workspace</span>
+        </div>
+      </div>
+      <nav class="sidebar-nav" aria-label="Main">
+        <button type="button" class="nav-item active" data-nav="home">Home</button>
+        <button type="button" class="nav-item" data-nav="events">Events</button>
+        <button type="button" class="nav-item" data-nav="people">People</button>
+        <button type="button" class="nav-item" data-nav="think">Thought Partner</button>
+        <button type="button" class="nav-item" data-nav="drafts">Drafts</button>
+        <button type="button" class="nav-item" data-nav="followups">Follow-ups</button>
+        <button type="button" class="nav-item" data-nav="eval">Eval</button>
+      </nav>
+      <div class="sidebar-foot">
+        <button type="button" class="nav-item nav-muted" data-nav="settings">Settings</button>
+        <button type="button" class="nav-item nav-muted" data-nav="help">Help</button>
+        <div class="sidebar-user" id="sidebar-user"></div>
+      </div>
+    </aside>
+
+    <div class="main-area">
+      <header class="main-topbar" id="main-topbar">
+        <div class="topbar-spacer"></div>
+        <button type="button" class="btn btn-primary" id="btn-new-event">+ Add event</button>
+      </header>
+
+      <main id="view-home" class="dashboard">
+        <section class="hero" id="hero"></section>
+
+        <div class="dashboard-grid">
+          <div class="dashboard-main">
+            <section class="card latest-event-card" id="latest-event"></section>
+            <section class="card continue-card" id="continue-actions"></section>
+            <section class="card loop-compact" id="loop-compact"></section>
+          </div>
+          <aside class="dashboard-rail">
+            <section class="card lens-card" id="lens-card"></section>
+            <section class="card capabilities-card" id="capabilities-card"></section>
+          </aside>
+        </div>
+
+        <section class="memory-timeline-section" id="memory-timeline"></section>
+        <section class="bottom-banner" id="bottom-banner"></section>
+      </main>
+
+      <main id="view-session" class="hidden session-view">
+        <button type="button" class="back-link" id="btn-back">← Back to home</button>
+        <section class="card session-card">
+          <div class="event-context-bar" id="session-event-context"></div>
+          <div class="pipeline-mini" id="session-pipeline"></div>
+          <div class="tabs" role="tablist">
+            <button class="tab" data-tab="attend">Attend</button>
+            <button class="tab" data-tab="think">Think</button>
+            <button class="tab" data-tab="connect">Connect</button>
+            <button class="tab" data-tab="create">Create</button>
+            <button class="tab" data-tab="review">Review</button>
+          </div>
+          <div class="panel" id="panel-attend"></div>
+          <div class="panel" id="panel-think"></div>
+          <div class="panel" id="panel-connect"></div>
+          <div class="panel" id="panel-create"></div>
+          <div class="panel" id="panel-review"></div>
+          <div id="event-link-banner" class="event-link-banner hidden"></div>
+        </section>
+        <aside class="session-quest-bar" id="session-quest-bar"></aside>
+      </main>
+    </div>
+  </div>
+
+  <dialog id="modal-event" class="modal">
+    <form id="form-event" method="dialog">
+      <header class="modal-header">
+        <h2>Log a past event</h2>
+        <p class="section-hint">Starts your loop at Attend — show up & capture</p>
+      </header>
+      <label class="field">
+        <span>Event name</span>
+        <input type="text" name="title" required placeholder="SF LLM Eval Mixer" />
+      </label>
+      <label class="field">
+        <span>Event type</span>
+        <select name="eventType">
+          <option value="mixer">Mixer (2-hour networking)</option>
+          <option value="panel">Panel</option>
+          <option value="conference">Conference</option>
+          <option value="webinar">Webinar</option>
+          <option value="other">Other</option>
+        </select>
+      </label>
+      <div class="field event-link-field">
+        <label>
+          <span>Event page link <strong class="recommended">recommended</strong></span>
+          <input type="url" name="eventUrl" placeholder="https://lu.ma/your-event or Eventbrite or conference site" />
+        </label>
+        <p class="field-hint">The page for this event you attended — helps capture speakers and context.</p>
+      </div>
+      <label class="field">
+        <span>Location (optional)</span>
+        <input type="text" name="location" placeholder="SoMa, San Francisco" />
+      </label>
+      <label class="field">
+        <span>Your notes</span>
+        <textarea name="rawNotes" rows="8" required placeholder="Who you met, what stood out, raw thoughts…"></textarea>
+      </label>
+      <label class="checkbox-field">
+        <input type="checkbox" name="skipEventLink" />
+        <span>I'll add the event page link later</span>
+      </label>
+      <p id="form-error" class="form-error hidden"></p>
+      <p id="form-warning" class="form-warning hidden"></p>
+      <footer class="modal-footer">
+        <button type="button" class="btn btn-ghost" id="btn-cancel-event">Cancel</button>
+        <button type="submit" class="btn btn-primary">Log event & begin</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="modal-link" class="modal">
+    <form id="form-link" method="dialog">
+      <header class="modal-header">
+        <h2 id="link-modal-title">Add event page link</h2>
+        <p class="section-hint" id="link-modal-hint">For the past event you logged</p>
+      </header>
+      <input type="hidden" name="sessionId" id="link-session-id" />
+      <label class="field">
+        <span>Event page URL</span>
+        <input type="url" name="eventUrl" required placeholder="https://lu.ma/…" />
+      </label>
+      <p id="link-error" class="form-error hidden"></p>
+      <footer class="modal-footer">
+        <button type="button" class="btn btn-ghost" id="btn-cancel-link">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save link</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="modal-lens" class="modal">
+    <form id="form-lens" method="dialog">
+      <header class="modal-header">
+        <h2>Edit your lens</h2>
+        <p class="section-hint">How the thought partner understands your expertise and voice</p>
+      </header>
+      <label class="field">
+        <span>Name</span>
+        <input type="text" name="name" required />
+      </label>
+      <label class="field">
+        <span>Tagline</span>
+        <input type="text" name="tagline" placeholder="One line on what you bring" />
+      </label>
+      <label class="field">
+        <span>Current role</span>
+        <input type="text" name="currentRole" />
+      </label>
+      <label class="field">
+        <span>Education</span>
+        <input type="text" name="education" />
+      </label>
+      <label class="field">
+        <span>Expertise areas</span>
+        <textarea name="expertiseAreas" rows="3" placeholder="One per line — e.g. LLM evaluation, healthcare AI"></textarea>
+        <p class="field-hint">One area per line</p>
+      </label>
+      <label class="field">
+        <span>Content priorities</span>
+        <textarea name="contentPriorities" rows="2" placeholder="What you want to write about"></textarea>
+        <p class="field-hint">One priority per line (optional)</p>
+      </label>
+      <label class="field">
+        <span>Past post examples</span>
+        <textarea name="pastPostExamples" rows="6" placeholder="Paste LinkedIn posts or writing samples — one per paragraph block"></textarea>
+        <p class="field-hint">Helps match your voice. Separate posts with a blank line.</p>
+      </label>
+      <p id="lens-error" class="form-error hidden"></p>
+      <footer class="modal-footer">
+        <button type="button" class="btn btn-ghost" id="btn-cancel-lens">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save lens</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <script src="/app.js"></script>
+</body>
+</html>

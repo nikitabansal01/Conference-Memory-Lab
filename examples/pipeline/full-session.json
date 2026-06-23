@@ -1,7 +1,7 @@
 {
   "id": "f18cb72a-7ea1-4d1e-94e8-53e26029fd4d",
   "createdAt": "2026-06-22T23:49:22.035Z",
-  "updatedAt": "2026-06-22T23:50:43.820Z",
+  "updatedAt": "2026-06-23T00:07:29.451Z",
   "title": "SF LLM Eval Mixer",
   "eventType": "mixer",
   "rawNotes": "# Sample event notes — SF LLM Eval Meetup (2-hour mixer)\n\nEvent: Frontier AI Evaluation frameworks — informal mixer after panel\nLocation: SoMa, San Francisco\nLuma: https://lu.ma/example (placeholder)\n\n## Panel highlights (screenshot: slide on \"evals as product surface\")\n\n- Speaker: Dr. Maya Chen, Head of Evals @ MedAI — \"Evals aren't a gate before launch; they're the product surface clinicians trust.\"\n- Another speaker argued benchmark leaderboard chasing is misleading for healthcare — need task-specific failure modes.\n- Audience question: who owns eval when PM and ML disagree? No clear answer.\n\n## People I met\n\n1. **Jordan Lee** — PM at a Series B health startup, building ambient scribe. Met at coffee line.\n   - Talked about their eval rubric for clinical note accuracy vs physician edit rate.\n   - They're hiring PMs who understand regulated workflows.\n   - Connected on LinkedIn already — no message yet.\n\n2. **Alex Rivera** — ML engineer, ex-FDA. Random intro via mutual friend Sarah.\n   - Strong opinion: most \"human-in-the-loop\" demos ignore consent audit trails.\n   - Mentioned open problem: eval datasets that reflect diverse patient populations.\n\n3. **Sarah Kim** — Organizer, runs monthly SF health-AI mixers.\n   - Said next event is on agentic workflows in hospitals — want to speak?\n\n## My raw thoughts\n\n- The \"evals as product surface\" framing is less obvious than \"evals before ship\" — good LinkedIn angle for PM audience in regulated industries.\n- Jordan's edit-rate metric is more honest than BLEU-style scores — want to explore for future project.\n- Alex's consent audit trail point = gap I keep seeing in demos. Challenge: do we over-index on model accuracy vs workflow trust?\n- Should follow up with Jordan about their rubric. Alex too — the FDA angle is rare.\n\n## Less obvious takeaway\n\nEveryone talked about model eval; almost nobody talked about **evaluating the agentic workflow** (tool calls, handoffs, escalation). That's my wedge.\n",
@@ -280,9 +280,9 @@
     {
       "id": "angle-1",
       "title": "The eval gap nobody at the mixer mentioned",
-      "hook": "Everyone at last night's SF health-AI mixer was debating model benchmarks. Almost nobody talked about evaluating the agentic workflow.",
-      "nonObviousInsight": "Model eval is table stakes; the missing layer is eval for tool calls, handoffs, and escalation paths — especially in hospital workflows where a 'correct' output can still break consent or audit requirements.",
-      "rationale": "Directly from your less-obvious takeaway; differentiated from typical event recap posts. Positions you at agentic AI + eval intersection.",
+      "hook": "Earlier this week I wrote about moving from response-centered to outcome-centered evals. A 2-hour SF health-AI mixer pushed me one layer deeper.",
+      "nonObviousInsight": "The room debated model benchmarks. Almost nobody talked about evaluating the full workflow — how tools get called, how handoffs happen, when to escalate — not just whether the model output looks right.",
+      "rationale": "Connects to your recent eval thread and the event's less-obvious takeaway. Differentiated from a standard conference recap.",
       "expertiseLens": [
         "LLM evaluation frameworks",
         "agentic AI workflow design",
@@ -292,7 +292,7 @@
         "linkedin",
         "newsletter"
       ],
-      "predictedAudience": "PMs and eval leads building in health AI; people who attend SF frontier AI events",
+      "predictedAudience": "PMs and eval leads in health AI; people who go to SF frontier AI events",
       "claimIds": [
         "claim-8",
         "claim-1",
@@ -301,18 +301,17 @@
     },
     {
       "id": "angle-2",
-      "title": "Evals aren't a gate — they're the product surface",
+      "title": "Evals aren't a gate — they're what clinicians learn to trust",
       "hook": "Dr. Maya Chen said something that stuck: evals aren't a gate before launch. They're the product surface clinicians trust.",
-      "nonObviousInsight": "This reframing shifts eval from ML's pre-ship checklist to PM's ongoing trust design problem — and it raises an uncomfortable question the panel couldn't answer: who owns eval when PM and ML disagree?",
-      "rationale": "Strong speaker quote + your ownership theme; less obvious than restating the quote alone because you add the PM/ML tension.",
+      "nonObviousInsight": "That reframe shifts eval from an ML checklist to an ongoing trust problem — and the panel couldn't answer who owns it when PM and ML disagree.",
+      "rationale": "Strong speaker quote plus your ownership theme. Adds PM tension instead of restating the slide.",
       "expertiseLens": [
         "product management",
         "LLM evaluation frameworks",
         "human-centered design"
       ],
       "platforms": [
-        "linkedin",
-        "twitter"
+        "linkedin"
       ],
       "predictedAudience": "Product leaders in regulated industries; clinical AI builders",
       "claimIds": [
@@ -323,10 +322,10 @@
     },
     {
       "id": "angle-3",
-      "title": "Why physician edit rate beats BLEU in clinical AI",
-      "hook": "A PM I met at a mixer measures ambient scribe quality by physician edit rate — not BLEU, not leaderboard scores.",
-      "nonObviousInsight": "Production eval metrics that reflect how clinicians actually work are more honest than benchmark chasing — but edit rate alone won't catch consent audit trail gaps that ex-FDA engineers keep flagging.",
-      "rationale": "Concrete, conversational, grounded in Jordan conversation; bridges practical metrics + trust gap without naming Jordan in a way that feels like name-dropping.",
+      "title": "Why physician edit rate beats leaderboard scores",
+      "hook": "A PM I met at a mixer measures ambient scribe quality by how often physicians edit the note — not by BLEU scores or leaderboard rankings.",
+      "nonObviousInsight": "Production metrics that reflect how clinicians actually work are more honest than benchmark chasing — but edit rate alone won't catch consent and audit trail gaps that keep showing up in demos.",
+      "rationale": "Concrete, conversational, grounded in the Jordan conversation. Bridges practical metrics and workflow trust.",
       "expertiseLens": [
         "healthcare regulated workflows",
         "LLM evaluation frameworks"
@@ -335,7 +334,7 @@
         "linkedin",
         "blog"
       ],
-      "predictedAudience": "Health AI PMs and ML engineers evaluating clinical documentation products",
+      "predictedAudience": "Health AI PMs evaluating clinical documentation products",
       "claimIds": [
         "claim-5",
         "claim-3",
@@ -347,7 +346,7 @@
     {
       "id": "followup-jordan",
       "personId": "person-jordan-lee",
-      "message": "Jordan — great chatting at the eval mixer (coffee line crew). Your point about measuring ambient scribe quality via physician edit rate vs BLEU stuck with me. Would love to hear more about how you're structuring that rubric — especially where PM and ML align (or don't). No rush, just genuinely curious.",
+      "message": "Jordan — great chatting at the eval mixer, coffee line crew. Your point about measuring ambient scribe quality by physician edit rate instead of BLEU stuck with me. I'd love to hear more about how you're structuring that rubric, especially where PM and ML align or don't. No rush — genuinely curious.",
       "contextUsed": [
         "Met at coffee line",
         "edit rate vs BLEU",
@@ -359,7 +358,7 @@
     {
       "id": "followup-alex",
       "personId": "person-alex-rivera",
-      "message": "Alex — Sarah intro'd us at the health-AI mixer and your point about consent audit trails in HITL demos has been rattling around my head since. Ex-FDA perspective is rare in those rooms. Would enjoy continuing the conversation if you're open to it.",
+      "message": "Alex — Sarah introduced us at the health-AI mixer. Your point about consent audit trails in human-in-the-loop demos has been on my mind since. Ex-FDA perspective is rare in those rooms. Would enjoy continuing the conversation if you're open to it.",
       "contextUsed": [
         "Intro via Sarah Kim",
         "consent audit trails in HITL demos",
@@ -370,7 +369,7 @@
     {
       "id": "followup-sarah",
       "personId": "person-sarah-kim",
-      "message": "Sarah — thanks for a great mixer and for flagging the agentic workflows in hospitals event. Very much interested in the speaking conversation. I'll follow up with a few topic angles that might fit your audience.",
+      "message": "Sarah — thanks for a great mixer, and for flagging the agentic workflows in hospitals event. I'm very interested in the speaking conversation. I'll follow up with a few topic angles that might fit your audience.",
       "contextUsed": [
         "Organizer of SF health-AI mixers",
         "invited to speak on agentic workflows in hospitals"
@@ -383,21 +382,24 @@
       "id": "draft-linkedin-1",
       "angleId": "angle-1",
       "platform": "linkedin",
-      "body": "Last night at an SF health-AI mixer on frontier eval frameworks, the room was full of smart takes on model benchmarks and leaderboard skepticism.\n\nHere's what almost nobody said out loud:\n\nWe still don't know how to **evaluate the agentic workflow** — tool calls, handoffs, escalation — not just the model output.\n\nOne speaker (Dr. Maya Chen, MedAI) framed evals as \"the product surface clinicians trust\" — not a gate before launch. I keep turning that over.\n\nIf the model scores well but the workflow breaks consent logging or audit trails — a gap an ex-FDA engineer I met kept pointing to — did you pass eval?\n\nFor PMs in regulated industries, this isn't academic. It's the difference between a demo that wins a pitch and a product that survives a hospital workflow review.\n\nWhat's the eval metric you trust beyond model accuracy?\n\n#HealthAI #LLMEval #ProductManagement #AgenticAI",
+      "body": "Earlier this week I wrote about moving from response-centered to outcome-centered evals in consumer healthcare AI.\n\nA 2-hour SF health-AI mixer this week pushed me one layer deeper.\n\nEveryone in the room was debating model benchmarks and whether leaderboard chasing misleads healthcare teams. Fair. Those things matter.\n\nBut they are not enough.\n\nHere's what almost nobody said out loud:\n\nWe still don't know how to evaluate the full agentic workflow — how tools get called, how handoffs happen, when to escalate — not just whether the model output looks right.\n\nDr. Maya Chen (MedAI) framed evals as \"the product surface clinicians trust\" — not a gate before launch. I keep turning that over.\n\nBecause between the user input and the model's response lives the reasoning. And in healthcare AI, that reasoning layer is where things quietly go wrong.\n\nIf the model scores well but the workflow breaks consent logging or audit trails — a gap an ex-FDA engineer I met kept flagging — did you pass eval?\n\nThat's not a guardrail problem. That's a reasoning problem.\n\nThe harder product question from that night kept coming back:\n\nWhat happened after the answer?\n- Did the product catch missing context?\n- Did it know when not to answer?\n- Did it escalate when risk was high?\n- Did the eval reflect how clinicians actually work — or how ML teams wish they worked?\n\nOne PM I spoke with measures ambient scribe quality by physician edit rate, not BLEU. That's more honest. But it still doesn't answer whether the workflow earns trust in a regulated setting.\n\nConsumer healthcare AI needs to move from response-centered evals to outcome-centered evals.\n\nNot just: Did the model respond well?\n\nBut: Did the product help the person — and the clinician — reach the right next step?\n\nWhat's the eval metric you trust beyond model accuracy?",
       "reasoningTrace": [
-        "Hook from claim-8 (non-obvious agentic eval gap)",
-        "Maya quote from claim-1 grounds the post in the event",
-        "Alex/consent angle from claim-6 adds trust dimension without naming him",
-        "Closing question invites PM audience engagement — matches voiceTraits"
+        "Opens by linking to recent eval posts — 'going one layer deeper' pattern from post #4",
+        "Uses 'Those things matter. But they are not enough.' rhythm from post #5",
+        "Plain English for agentic workflow — no jargon-heavy phrasing",
+        "Maya Chen attribution matches David Talby credit pattern",
+        "Guardrail vs reasoning reframe from post #4",
+        "Bullet list of outcome questions from post #5",
+        "No emojis, no hashtags — matches recent voice preference"
       ]
     }
   ],
   "xpEarned": 0,
   "evalScores": {
     "grounding": 92,
-    "voice": 78,
-    "expertiseLens": 88,
-    "nonObviousness": 85,
-    "notes": "Strong grounding via claim citations. Voice would improve further once real pastPostExamples are added to profile. Agentic workflow angle is clearly differentiated from generic event recap."
+    "voice": 91,
+    "expertiseLens": 93,
+    "nonObviousness": 87,
+    "notes": "Voice improved with real post corpus: layered structure, outcome-centered framing, no emojis, plain English. Follow-ups are conversational without performative networking tone."
   }
 }

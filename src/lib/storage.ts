@@ -10,6 +10,7 @@ export const SESSIONS_DIR = join(DATA_DIR, "sessions");
 export const PROGRESS_FILE = join(DATA_DIR, "progress.json");
 export const PROFILE_FILE = join(ROOT, "profile", "profile.json");
 export const PROFILE_EXAMPLE = join(ROOT, "profile", "profile.example.json");
+export const RESUME_FILE = join(ROOT, "profile", "resume.md");
 
 async function ensureDataDirs(): Promise<void> {
   await mkdir(SESSIONS_DIR, { recursive: true });
@@ -76,6 +77,19 @@ export async function loadProfileOrExample(): Promise<ExpertiseProfile> {
   if (profile) return profile;
   const raw = await readFile(PROFILE_EXAMPLE, "utf-8");
   return JSON.parse(raw) as ExpertiseProfile;
+}
+
+export async function saveProfile(profile: ExpertiseProfile): Promise<void> {
+  await mkdir(join(ROOT, "profile"), { recursive: true });
+  await writeFile(PROFILE_FILE, JSON.stringify(profile, null, 2));
+}
+
+export async function loadResume(): Promise<string | null> {
+  try {
+    return await readFile(RESUME_FILE, "utf-8");
+  } catch {
+    return null;
+  }
 }
 
 export { ROOT };

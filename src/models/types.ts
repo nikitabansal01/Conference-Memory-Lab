@@ -153,8 +153,11 @@ export interface Milestone {
 export interface ExpertiseProfile {
   name: string;
   tagline: string;
+  currentRole?: string;
+  education?: string;
   expertiseAreas: string[];
   industries: string[];
+  experienceHighlights?: string[];
   voiceTraits: string[];
   avoidPatterns: string[];
   pastPostExamples: string[];

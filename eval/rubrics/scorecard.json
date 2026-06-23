@@ -17,14 +17,14 @@
       }
     },
     "voice": {
-      "description": "Output matches user's voiceTraits and pastPostExamples",
+      "description": "Output matches user's voiceTraits and pastPostExamples — conversational, plain English, no emojis",
       "scale": "0-100",
       "thresholds": { "pass": 70, "excellent": 90 },
       "scoringGuide": {
-        "90-100": "Indistinguishable from user's corpus",
+        "90-100": "Indistinguishable from user's corpus; no emojis; conversational not corporate",
         "70-89": "Recognizably user-like; minor AI tells",
-        "50-69": "Professional but generic",
-        "0-49": "Clearly generic AI voice"
+        "50-69": "Professional but generic or too jargon-heavy",
+        "0-49": "Generic AI voice or uses emojis against preference"
       }
     },
     "expertiseLens": {

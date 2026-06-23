@@ -15,7 +15,7 @@ Ship a usable **memory + thought partner** loop for networking events before any
 | Event title | Yes | string |
 | Event type | Yes | `mixer` \| `panel` \| `conference` \| `webinar` \| `other` |
 | Raw notes | Yes | plain text or markdown file |
-| Luma/event URL | No | URL (stored for L5) |
+| Event link | **Recommended** — Luma, Eventbrite, Partiful, or conference website (stored at L0; parsed at L5) |
 | Screenshot descriptions | No | text per image (OCR later) |
 | People met | No | inline in notes or structured list |
 

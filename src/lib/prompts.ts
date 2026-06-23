@@ -3,6 +3,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { EventSession, ExpertiseProfile, TrustLevel } from "../models/types.js";
 import { canPerformAction } from "../trust/levels.js";
+import { loadResume } from "./storage.js";
 
 const WORKFLOWS_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "workflows");
 
@@ -78,11 +79,13 @@ export async function buildWorkflowPrompt(
   }
 
   const template = await readFile(join(WORKFLOWS_DIR, WORKFLOW_FILES[workflow]), "utf-8");
+  const resume = profile && workflow !== "extract" ? await loadResume() : null;
 
   const userContext = [
     "## Event session",
     formatSessionContext(session),
     profile ? "\n## Expertise profile\n" + formatProfile(profile) : "",
+    resume ? "\n## Resume (professional context)\n" + resume : "",
   ].join("\n");
 
   const parts = template.split("---");

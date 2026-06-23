@@ -7,4 +7,5 @@ data/sessions/*
 !data/sessions/.gitkeep
 data/progress.json
 profile/profile.json
+profile/resume.md
 *.local.json

@@ -15,14 +15,17 @@
     "connects tactical event learnings to strategic PM implications",
     "uses concrete examples from regulated environments",
     "asks what evaluators and clinicians would push back on",
-    "writes in first person, conversational but credible"
+    "closes with a reframing question or clear takeaway, not a generic CTA",
+    "conversational and direct — writes like a thoughtful colleague, not a press release",
+    "plain English over technical jargon; explain concepts in everyday language when possible"
   ],
   "avoidPatterns": [
-    "generic AI hype without nuance",
+    "emojis — never use emojis in any post, draft, or follow-up",
+    "generic AI hype without nuance or evidence",
     "restating speaker slides without adding perspective",
-    "jargon without explanation",
-    "claims not supported by what was actually said",
-    "performative networking language ('synergy', 'circle back')"
+    "hashtag stuffing",
+    "dense technical jargon when plain English would land better",
+    "performative networking language ('synergy', 'circle back', 'excited to announce')"
   ],
   "pastPostExamples": [
     "Paste your best LinkedIn posts here — the agent uses these for voice matching.",

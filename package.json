@@ -4,7 +4,8 @@
   "description": "Interaction memory lab and thought partner for networking events",
   "type": "module",
   "scripts": {
-    "dev": "tsx src/cli.ts",
+    "dev": "tsx src/server.ts",
+    "ui": "tsx src/server.ts",
     "lab": "tsx src/cli.ts",
     "typecheck": "tsc --noEmit"
   },
