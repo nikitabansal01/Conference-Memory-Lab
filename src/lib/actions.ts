@@ -52,7 +52,7 @@ export function buildActionItems(
     items.push({
       id: "log-event",
       type: "log_event",
-      label: "Log your first event",
+      label: "Add your recent or upcoming event",
       description: "Paste notes and add the event link (Luma, Eventbrite, or conference site)",
       priority: 90,
     });
