@@ -50,7 +50,7 @@ export function getProfileStatus(
     ? `Reading you through your resume and ${profile.expertiseAreas.slice(0, 3).join(", ")} lens.`
     : profile.currentRole
       ? `Interpreting events through: ${profile.currentRole} · ${profile.expertiseAreas.slice(0, 2).join(", ")}`
-      : "Complete Your Lens so insights connect to your work, not generic advice.";
+      : "Complete your unique lens so insights connect to your work, not generic advice.";
 
   return {
     complete: score >= 70 && (hasResume || (hasBio && Boolean(profile.currentRole))),

@@ -39,9 +39,10 @@
         <button type="button" class="nav-item" data-nav="content">Content</button>
       </nav>
       <div class="sidebar-foot">
-        <button type="button" class="nav-item nav-muted" data-nav="lens">Your Lens</button>
+        <button type="button" class="nav-item nav-muted" data-nav="lens">Your Unique Lens</button>
         <button type="button" class="nav-item nav-muted" data-nav="connections">Connections</button>
         <button type="button" class="nav-item nav-muted" data-nav="help">Help</button>
+        <div class="sidebar-capacity" id="sidebar-capacity"></div>
         <div class="sidebar-user" id="sidebar-user"></div>
       </div>
     </aside>
@@ -59,14 +60,14 @@
           <div class="dashboard-main">
             <section class="card latest-event-card" id="latest-event"></section>
             <section class="card continue-card" id="continue-actions"></section>
+            <section class="memory-timeline-section" id="memory-timeline"></section>
           </div>
           <aside class="dashboard-rail">
             <section class="card lens-card" id="lens-card"></section>
-            <section class="card capabilities-card" id="capabilities-card"></section>
+            <section class="card streak-card" id="learning-streak-card"></section>
           </aside>
         </div>
 
-        <section class="memory-timeline-section" id="memory-timeline"></section>
         <section class="bottom-banner" id="bottom-banner"></section>
       </main>
 
@@ -100,13 +101,21 @@
   <dialog id="modal-event" class="modal">
     <form id="form-event" method="dialog">
       <header class="modal-header">
-        <h2>Log a past event</h2>
-        <p class="section-hint">Starts your loop at Attend — show up & capture</p>
+        <h2>Add an event</h2>
+        <p class="section-hint">Paste the event page first — we'll name it and help you show up intentionally.</p>
       </header>
-      <label class="field">
-        <span>Event name</span>
-        <input type="text" name="title" required placeholder="SF LLM Eval Mixer" />
-      </label>
+      <div class="field event-link-field">
+        <label>
+          <span>Event page link</span>
+          <input type="url" name="eventUrl" id="event-url-input" placeholder="https://lu.ma/your-event or Eventbrite or conference site" />
+        </label>
+        <p class="field-hint" id="event-url-status">We'll read the public page for title and context.</p>
+      </div>
+      <div class="field event-title-preview hidden" id="event-title-preview">
+        <span class="field-label">Event</span>
+        <p class="event-title-auto" id="event-title-display"></p>
+        <input type="hidden" name="title" id="event-title-input" />
+      </div>
       <label class="field">
         <span>Event type</span>
         <select name="eventType">
@@ -117,22 +126,15 @@
           <option value="other">Other</option>
         </select>
       </label>
-      <div class="field event-link-field">
-        <label>
-          <span>Event page link <strong class="recommended">recommended</strong></span>
-          <input type="url" name="eventUrl" placeholder="https://lu.ma/your-event or Eventbrite or conference site" />
-        </label>
-        <p class="field-hint">The page for this event you attended — helps capture speakers and context.</p>
-      </div>
       <label class="field">
         <span>Location (optional)</span>
-        <input type="text" name="location" placeholder="SoMa, San Francisco" />
+        <input type="text" name="location" id="event-location-input" placeholder="Filled from event page when available" />
       </label>
       <label class="field">
         <span>Your notes</span>
-        <textarea name="rawNotes" rows="8" required placeholder="Who you met, what stood out, raw thoughts…"></textarea>
+        <textarea name="rawNotes" rows="6" required placeholder="Who you met, what stood out, raw thoughts… Or what you hope to get if you haven't attended yet."></textarea>
       </label>
-      <label class="checkbox-field">
+      <label class="checkbox-field hidden" id="skip-link-field">
         <input type="checkbox" name="skipEventLink" />
         <span>I'll add the event page link later</span>
       </label>
@@ -140,7 +142,7 @@
       <p id="form-warning" class="form-warning hidden"></p>
       <footer class="modal-footer">
         <button type="button" class="btn btn-ghost" id="btn-cancel-event">Cancel</button>
-        <button type="submit" class="btn btn-primary">Log event & begin</button>
+        <button type="submit" class="btn btn-primary">Add event</button>
       </footer>
     </form>
   </dialog>
@@ -164,49 +166,71 @@
     </form>
   </dialog>
 
-  <dialog id="modal-lens" class="modal">
-    <form id="form-lens" method="dialog">
-      <header class="modal-header">
-        <h2>Edit your lens</h2>
-        <p class="section-hint">How the thought partner understands your expertise and voice</p>
-      </header>
-      <label class="field">
-        <span>Name</span>
-        <input type="text" name="name" required />
-      </label>
-      <label class="field">
-        <span>Tagline</span>
-        <input type="text" name="tagline" placeholder="One line on what you bring" />
-      </label>
-      <label class="field">
-        <span>Current role</span>
-        <input type="text" name="currentRole" />
-      </label>
-      <label class="field">
-        <span>Education</span>
-        <input type="text" name="education" />
-      </label>
-      <label class="field">
-        <span>Expertise areas</span>
-        <textarea name="expertiseAreas" rows="3" placeholder="One per line — e.g. LLM evaluation, healthcare AI"></textarea>
-        <p class="field-hint">One area per line</p>
-      </label>
-      <label class="field">
-        <span>Content priorities</span>
-        <textarea name="contentPriorities" rows="2" placeholder="What you want to write about"></textarea>
-        <p class="field-hint">One priority per line (optional)</p>
-      </label>
-      <label class="field">
-        <span>Past post examples</span>
-        <textarea name="pastPostExamples" rows="6" placeholder="Paste LinkedIn posts or writing samples — one per paragraph block"></textarea>
-        <p class="field-hint">Helps match your voice. Separate posts with a blank line.</p>
-      </label>
-      <p id="lens-error" class="form-error hidden"></p>
-      <footer class="modal-footer">
+  <dialog id="modal-lens" class="modal modal-scroll">
+    <form id="form-lens" method="dialog" class="modal-form-stacked">
+      <div class="modal-body-scroll">
+        <header class="modal-header">
+          <h2>Your Unique Lens</h2>
+          <p class="section-hint">Learning goals, projects you apply insights to, and how the thought partner understands your voice</p>
+        </header>
+        <label class="field">
+          <span>Name</span>
+          <input type="text" name="name" required />
+        </label>
+        <label class="field">
+          <span>Tagline</span>
+          <input type="text" name="tagline" placeholder="One line on what you bring" />
+        </label>
+        <label class="field">
+          <span>Current role</span>
+          <input type="text" name="currentRole" />
+        </label>
+        <label class="field">
+          <span>Education</span>
+          <input type="text" name="education" />
+        </label>
+        <label class="field">
+          <span>Learning goals & expertise</span>
+          <textarea name="expertiseAreas" rows="3" placeholder="One per line — e.g. LLM evals, UI/UX, healthcare AI"></textarea>
+          <p class="field-hint">Topics you want the thought partner to prioritize</p>
+        </label>
+        <label class="field">
+          <span>Ongoing projects</span>
+          <textarea name="contentPriorities" rows="2" placeholder="Where you apply event learnings — one per line"></textarea>
+        </label>
+        <label class="field">
+          <span>Past post examples</span>
+          <textarea name="pastPostExamples" rows="4" placeholder="Paste LinkedIn posts or writing samples — one per paragraph block"></textarea>
+          <p class="field-hint">Helps match your voice. Separate posts with a blank line.</p>
+        </label>
+        <p id="lens-error" class="form-error hidden"></p>
+      </div>
+      <footer class="modal-footer modal-footer-sticky">
         <button type="button" class="btn btn-ghost" id="btn-cancel-lens">Cancel</button>
         <button type="submit" class="btn btn-primary">Save lens</button>
       </footer>
     </form>
+  </dialog>
+
+  <dialog id="modal-event-outcome" class="modal modal-scroll">
+    <header class="modal-header modal-header-padded">
+      <h2>Event linked</h2>
+      <p class="section-hint" id="event-outcome-subtitle">What we know about this event so far</p>
+    </header>
+    <div class="modal-body-scroll modal-body-padded" id="event-outcome-body"></div>
+    <div class="modal-body-scroll modal-body-padded intent-confirm-block" id="event-intent-block">
+      <h3 class="intent-confirm-title">Why this event for you?</h3>
+      <p class="field-hint">We suggested a few based on your Unique Lens — pick one or write your own. Keeps attendance intentional.</p>
+      <div class="intent-suggestions" id="intent-suggestions"></div>
+      <label class="field">
+        <span>Your intent</span>
+        <textarea id="event-intent-input" rows="3" placeholder="What would make this event worth your time?"></textarea>
+      </label>
+    </div>
+    <footer class="modal-footer modal-footer-sticky">
+      <button type="button" class="btn btn-ghost" id="btn-close-event-outcome">Close</button>
+      <button type="button" class="btn btn-primary" id="btn-outcome-continue">Save intent &amp; continue</button>
+    </footer>
   </dialog>
 
   <dialog id="modal-connections" class="modal">

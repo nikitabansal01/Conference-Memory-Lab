@@ -121,6 +121,28 @@ export interface CaptureFile {
   blobUrl?: string;
 }
 
+export interface EventEnrichmentSpeaker {
+  name: string;
+  title?: string;
+  company?: string;
+  topic?: string;
+  linkedInUrl?: string;
+  role?: "host" | "speaker" | "guest";
+}
+
+export interface EventEnrichment {
+  title: string;
+  description: string;
+  speakers: EventEnrichmentSpeaker[];
+  topics: string[];
+  location?: string;
+  startAt?: string;
+  attendeeCount?: number;
+  fetchedAt: string;
+  source: string;
+  eventUrl: string;
+}
+
 export interface EventSession {
   id: string;
   createdAt: string;
@@ -129,6 +151,8 @@ export interface EventSession {
   eventType: EventType;
   eventUrl?: string;
   location?: string;
+  eventEnrichment?: EventEnrichment;
+  attendanceIntent?: string;
   rawNotes: string;
   screenshotDescriptions: string[];
   captures?: CaptureFile[];

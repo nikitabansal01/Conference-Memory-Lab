@@ -248,7 +248,7 @@ export function buildActionItems(
     items.push({
       id: "complete-lens",
       type: "complete_lens",
-      label: "Complete Your Lens",
+      label: "Complete Your Unique Lens",
       description: profileStatus.missing[0] ?? "Upload resume or write a short bio",
       priority: 100,
       goal: "loop",

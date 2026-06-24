@@ -43,6 +43,16 @@ function formatSessionContext(session: EventSession): string {
       eventType: session.eventType,
       eventUrl: session.eventUrl,
       location: session.location,
+      attendanceIntent: session.attendanceIntent,
+      eventPageContext: session.eventEnrichment
+        ? {
+            title: session.eventEnrichment.title,
+            description: session.eventEnrichment.description,
+            topics: session.eventEnrichment.topics,
+            hosts: session.eventEnrichment.speakers.filter((s) => s.role === "host"),
+            attendeeCount: session.eventEnrichment.attendeeCount,
+          }
+        : undefined,
       rawNotes: session.rawNotes,
       screenshotDescriptions: session.screenshotDescriptions,
       people: session.people,

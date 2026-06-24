@@ -51,6 +51,15 @@ const STAGE_LOOP_INDEX = {
   published: 5,
 };
 
+const CAPACITY_DISPLAY = [
+  { level: 0, label: "L1", name: "Observer", tagline: "Capture & summarize events" },
+  { level: 1, label: "L2", name: "Thinking Partner", tagline: "Compare ideas & challenge assumptions" },
+  { level: 2, label: "L3", name: "Content Collaborator", tagline: "Create content & share insights" },
+  { level: 3, label: "L4", name: "Networking Assistant", tagline: "Personalized outreach & follow-ups" },
+  { level: 4, label: "L5", name: "Workflow Assistant", tagline: "Automate tasks & save you time" },
+  { level: 5, label: "L6", name: "Trusted Delegate", tagline: "You focus, I handle the rest" },
+];
+
 const ACTION_STATUS = {
   complete_lens: { label: "Recommended", tone: "rec" },
   log_event: { label: "High priority", tone: "high" },
@@ -134,7 +143,8 @@ function renderHome() {
   renderLatestEvent(d);
   renderContinueActions(d);
   renderLens(d.profile, d.lensImpact);
-  renderCapabilities(d);
+  renderLearningStreak(d);
+  renderSidebarCapacity(d);
   renderTimeline(d);
   renderBottomBanner();
   showMainView("home");
@@ -721,53 +731,345 @@ function renderContinueActions(d) {
   });
 }
 
-function renderCapabilities(d) {
-  const el = document.getElementById("capabilities-card");
-  const p = d.progress;
-  const caps = p.capabilities ?? [];
-  const allCaps = [
-    { label: "Attend", unlockLevel: 0, hint: "Capture notes & media" },
-    { label: "Think", unlockLevel: 1, hint: "Synthesize what mattered" },
-    { label: "Connect", unlockLevel: 2, hint: "Draft follow-ups" },
-    { label: "Create", unlockLevel: 2, hint: "Write platform drafts" },
-    { label: "Review", unlockLevel: 3, hint: "Approve before sharing" },
-  ];
-  const next = d.nextUnlock;
+function buildCapacitySidebarClient(d) {
+  const p = d.progress ?? {};
+  const trustLevel = Math.min(p.level ?? 0, CAPACITY_DISPLAY.length - 1);
   const progressPct = p.next?.progressPct ?? 100;
+  const displayLevel = Math.min(trustLevel + 1, CAPACITY_DISPLAY.length);
+  const displayName = CAPACITY_DISPLAY[trustLevel]?.name ?? p.levelName ?? "Observer";
+  const overallPct = Math.min(
+    100,
+    Math.round(((trustLevel + progressPct / 100) / CAPACITY_DISPLAY.length) * 100)
+  );
+  const scaleDotPct = CAPACITY_DISPLAY.length <= 1 ? 0 : (trustLevel / (CAPACITY_DISPLAY.length - 1)) * 100;
+  const nextName =
+    trustLevel >= CAPACITY_DISPLAY.length - 1
+      ? null
+      : CAPACITY_DISPLAY[trustLevel + 1]?.name ?? null;
+  const unlockPct = d.nextUnlock?.progressPct ?? progressPct;
+
+  return {
+    displayLevel,
+    displayName,
+    overallPct,
+    scaleDotPct,
+    ticks: CAPACITY_DISPLAY.map((entry) => ({
+      label: entry.label,
+      unlocked: trustLevel >= entry.level,
+      current: trustLevel === entry.level,
+    })),
+    nextName,
+    unlockPct: nextName ? unlockPct : null,
+  };
+}
+
+function buildLearningStreakClient(d) {
+  const dayLabels = ["M", "T", "W", "T", "F", "S", "S"];
+  const today = new Date();
+  const day = today.getDay();
+  const monday = new Date(today);
+  monday.setHours(0, 0, 0, 0);
+  monday.setDate(today.getDate() - (day === 0 ? 6 : day - 1));
+
+  const activeDates = new Set();
+  for (const session of d.sessions ?? []) {
+    const key = (session.updatedAt ?? session.createdAt ?? "").slice(0, 10);
+    if (key) activeDates.add(key);
+  }
+
+  const week = dayLabels.map((label, index) => {
+    const date = new Date(monday);
+    date.setDate(monday.getDate() + index);
+    return {
+      label,
+      active: activeDates.has(date.toISOString().slice(0, 10)),
+    };
+  });
+
+  let activeDays = d.learningStreak?.activeDays ?? 0;
+  if (!activeDays) {
+    const cursor = new Date(today);
+    cursor.setHours(0, 0, 0, 0);
+    while (activeDates.has(cursor.toISOString().slice(0, 10))) {
+      activeDays += 1;
+      cursor.setDate(cursor.getDate() - 1);
+    }
+  }
+
+  return { activeDays, week };
+}
+
+function renderSidebarCapacity(d) {
+  const el = document.getElementById("sidebar-capacity");
+  if (!el) return;
+
+  const c = buildCapacitySidebarClient(d);
+  const arcLen = 157;
+  const dash = (arcLen * c.overallPct) / 100;
 
   el.innerHTML = `
-    <div class="capabilities-head">
-      <h2>Your capacity</h2>
-      <span class="level-badge">Level ${p.level} · ${escapeHtml(p.levelName)}</span>
+    <div class="sidebar-capacity-top">
+      <p class="sidebar-capacity-kicker">Your neural capacity</p>
+      <button type="button" class="capacity-info-btn" title="Levels unlock memory and networking capacity as you capture events, think through insights, and review drafts." aria-label="About neural capacity">i</button>
     </div>
-    <p class="lens-sub">Loop stages unlock as you use the product — not a grind, earned trust.</p>
-    <div class="capacity-stepper">
-      ${allCaps
-        .map((cap) => {
-          const unlocked = caps.includes(cap.label);
-          return `
-        <div class="capacity-step${unlocked ? " is-unlocked" : " is-locked"}" title="${escapeHtml(cap.hint)}">
-          <span class="capacity-step-marker" aria-hidden="true">${unlocked ? "✓" : "○"}</span>
-          <span class="capacity-step-label">${escapeHtml(cap.label)}</span>
-        </div>`;
-        })
-        .join("")}
+    <p class="sidebar-capacity-level-num">Level ${c.displayLevel}</p>
+    <div class="capacity-arc-wrap">
+      <svg viewBox="0 0 120 64" class="capacity-arc" aria-hidden="true">
+        <path d="M 10 58 A 50 50 0 0 1 110 58" fill="none" stroke="#e7e5e4" stroke-width="8" stroke-linecap="round" />
+        <path d="M 10 58 A 50 50 0 0 1 110 58" fill="none" stroke="var(--accent)" stroke-width="8" stroke-linecap="round"
+          stroke-dasharray="${dash} ${arcLen}" />
+      </svg>
+      <div class="capacity-arc-center">
+        <span class="capacity-arc-value">${c.overallPct}%</span>
+        <span class="capacity-arc-caption">of Memory &amp; Networking Capacity Unlocked</span>
+      </div>
+    </div>
+    <div class="capacity-scale">
+      <div class="capacity-scale-track" aria-hidden="true">
+        <span class="capacity-scale-line"></span>
+        ${CAPACITY_DISPLAY.map((entry, index) => {
+          const left = CAPACITY_DISPLAY.length <= 1 ? 0 : (index / (CAPACITY_DISPLAY.length - 1)) * 100;
+          const on = c.ticks[index]?.unlocked;
+          return `<span class="capacity-scale-node${on ? " is-on" : ""}${c.ticks[index]?.current ? " is-current" : ""}" style="left:${left}%"></span>`;
+        }).join("")}
+      </div>
+      <div class="capacity-scale-labels">
+        ${c.ticks
+          .map(
+            (tick) =>
+              `<span class="capacity-level-tick${tick.unlocked ? " is-on" : ""}${tick.current ? " is-current" : ""}">${tick.label}</span>`
+          )
+          .join("")}
+      </div>
     </div>
     ${
-      next
-        ? `
-      <div class="capacity-unlock-card">
-        <span class="capacity-unlock-label">Next unlock</span>
-        <strong>Level ${next.level} · ${escapeHtml(next.name)}</strong>
-        <p>${escapeHtml(next.tagline)}</p>
-        <div class="progress-track capacity-track">
-          <div class="progress-fill" style="width:${progressPct}%"></div>
-        </div>
-      </div>`
-        : `<p class="capacity-next">All loop stages unlocked. Connect accounts in <button type="button" class="text-link-btn" data-open-connections>Connections</button> when ready.</p>`
-    }`;
+      c.nextName
+        ? `<div class="sidebar-capacity-next-block">
+            <p class="sidebar-capacity-next-title">Next: ${escapeHtml(c.nextName)}</p>
+            <p class="sidebar-capacity-next-sub">Unlocks at ${c.unlockPct}%</p>
+          </div>`
+        : `<div class="sidebar-capacity-next-block">
+            <p class="sidebar-capacity-next-title">Full capacity unlocked</p>
+          </div>`
+    }
+    <button type="button" class="sidebar-capacity-link" data-view-progress>View progress →</button>`;
 
-  el.querySelector("[data-open-connections]")?.addEventListener("click", openConnectionsModal);
+  el.querySelector("[data-view-progress]")?.addEventListener("click", () => {
+    handleNav("home");
+    document.getElementById("learning-streak-card")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  });
+}
+
+function renderLearningStreak(d) {
+  const el = document.getElementById("learning-streak-card");
+  if (!el) return;
+
+  const streak = buildLearningStreakClient(d);
+  const dayLabel = streak.activeDays === 1 ? "day" : "days";
+
+  el.innerHTML = `
+    <div class="streak-head">
+      <div class="streak-title-wrap">
+        <span class="streak-flame" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+            <path d="M12 22c4.5-1.5 7-5 7-9 0-2.5-1.2-4.5-3-6 .5 2.5-.5 4-2 5.5C12.5 10.5 11 8 12 4c-3 2.5-5 6-5 9.5 0 4 2.5 7.5 5 8.5Z" fill="#f97316" stroke="#ea580c" stroke-width="1"/>
+          </svg>
+        </span>
+        <h2>${streak.activeDays} Day Learning Streak</h2>
+      </div>
+    </div>
+    <p class="streak-sub">${streak.activeDays} ${dayLabel}</p>
+    <div class="streak-week">
+      ${streak.week
+        .map(
+          (day) => `
+        <div class="streak-day${day.active ? " is-active" : ""}">
+          <span class="streak-day-dot" aria-hidden="true">${day.active ? "✓" : ""}</span>
+          <span class="streak-day-label">${escapeHtml(day.label)}</span>
+        </div>`
+        )
+        .join("")}
+    </div>`;
+}
+
+let outcomeSessionId = null;
+
+function renderEventOutcomeBody(preview) {
+  if (!preview) {
+    return `<p class="empty-stack">Event link saved. We could not read details from this page yet — add notes and run Remember to extract speakers and topics.</p>`;
+  }
+
+  const aboutText = preview.about || preview.summary;
+  const hosts = (preview.speakers ?? []).filter((s) => s.role === "host");
+  const sessionSpeakers = (preview.speakers ?? []).filter((s) => s.role === "speaker" && s.topic);
+
+  const hostsBlock = hosts.length
+    ? `<section class="outcome-section">
+        <h3>Host${hosts.length === 1 ? "" : "s"}</h3>
+        <ul class="outcome-speaker-list">
+          ${hosts
+            .map(
+              (s) => `
+            <li class="outcome-speaker">
+              <div>
+                <strong>${escapeHtml(s.name)}</strong>
+                ${s.title || s.company ? `<span>${escapeHtml([s.title, s.company].filter(Boolean).join(" · "))}</span>` : ""}
+                ${s.topic ? `<p class="outcome-speaker-topic">${escapeHtml(s.topic)}</p>` : ""}
+              </div>
+              ${
+                s.linkedInUrl
+                  ? `<a href="${escapeHtml(s.linkedInUrl)}" target="_blank" rel="noopener" class="btn btn-text">LinkedIn →</a>`
+                  : ""
+              }
+            </li>`
+            )
+            .join("")}
+        </ul>
+      </section>`
+    : "";
+
+  const speakersBlock = sessionSpeakers.length
+    ? `<section class="outcome-section">
+        <h3>Speakers</h3>
+        <ul class="outcome-speaker-list">
+          ${sessionSpeakers
+            .map(
+              (s) => `
+            <li class="outcome-speaker">
+              <div>
+                <strong>${escapeHtml(s.name)}</strong>
+                ${s.topic ? `<p class="outcome-speaker-topic">${escapeHtml(s.topic)}</p>` : ""}
+              </div>
+            </li>`
+            )
+            .join("")}
+        </ul>
+      </section>`
+    : "";
+
+  const attendeeBlock = preview.attendeeCount
+    ? `<p class="outcome-attendees">${preview.attendeeCount} people registered on Luma — we don't list individual attendees here.</p>`
+    : "";
+
+  const topicsBlock = preview.topics.length
+    ? `<section class="outcome-section">
+        <h3>Topics</h3>
+        <ul class="outcome-topic-list">${preview.topics.map((t) => `<li>${escapeHtml(t)}</li>`).join("")}</ul>
+      </section>`
+    : "";
+
+  return `
+    <div class="outcome-summary">
+      <span class="outcome-source">${escapeHtml(preview.sourceLabel)}</span>
+      <h3 class="outcome-event-title">${escapeHtml(preview.title)}</h3>
+      ${preview.location ? `<p class="outcome-location">${escapeHtml(preview.location)}</p>` : ""}
+      <p class="outcome-about">${escapeHtml(aboutText)}</p>
+      ${attendeeBlock}
+      <a href="${escapeHtml(preview.eventUrl)}" target="_blank" rel="noopener" class="btn btn-text">Open event page →</a>
+    </div>
+    ${hostsBlock}
+    ${speakersBlock}
+    ${topicsBlock}
+    ${preview.enrichmentHint ? `<p class="field-hint">${escapeHtml(preview.enrichmentHint)}</p>` : ""}`;
+}
+
+function buildEventPreviewFallback(session) {
+  if (!session) return null;
+  const enrichment = session.eventEnrichment;
+  return {
+    title: enrichment?.title || session.title || "Event",
+    sourceLabel: "Event page",
+    eventUrl: session.eventUrl || "",
+    summary:
+      enrichment?.description ||
+      "Event link saved. Capture notes and run Remember to pull speakers and topics from your materials.",
+    about: enrichment?.description,
+    location: enrichment?.location || session.location,
+    attendeeCount: enrichment?.attendeeCount,
+    speakers: (enrichment?.speakers ?? []).map((speaker, index) => ({
+      id: `fallback-${index}`,
+      name: speaker.name,
+      title: speaker.title,
+      company: speaker.company,
+      topic: speaker.topic,
+      linkedInUrl: speaker.linkedInUrl,
+    })),
+    topics: enrichment?.topics ?? [],
+    enrichmentHint: enrichment ? undefined : "We saved the link but could not read this page yet. Try again later or run Remember on your notes.",
+  };
+}
+
+function renderIntentSuggestions(suggestions) {
+  const el = document.getElementById("intent-suggestions");
+  const input = document.getElementById("event-intent-input");
+  if (!el || !input) return;
+
+  if (!suggestions?.length) {
+    el.innerHTML =
+      '<p class="field-hint">Complete Your Unique Lens for sharper suggestions — or write your own intent below.</p>';
+    input.value = "";
+    return;
+  }
+
+  el.innerHTML = suggestions
+    .map(
+      (s, i) =>
+        `<button type="button" class="intent-chip" data-intent-idx="${i}" title="${escapeHtml(s.rationale)}">${escapeHtml(s.text)}</button>`
+    )
+    .join("");
+
+  el.querySelectorAll("[data-intent-idx]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const suggestion = suggestions[Number(btn.dataset.intentIdx)];
+      input.value = suggestion.text;
+      el.querySelectorAll(".intent-chip").forEach((chip) => chip.classList.remove("is-selected"));
+      btn.classList.add("is-selected");
+    });
+  });
+
+  input.value = suggestions[0].text;
+  el.querySelector(".intent-chip")?.classList.add("is-selected");
+}
+
+function updateEventOutcomeModal(preview, intentSuggestions) {
+  document.getElementById("event-outcome-subtitle").textContent = preview?.title
+    ? `Linked: ${preview.title}`
+    : "What we know about this event so far";
+  document.getElementById("event-outcome-body").innerHTML = renderEventOutcomeBody(preview);
+  renderIntentSuggestions(intentSuggestions ?? []);
+}
+
+function previewNeedsEnrichment(preview, session) {
+  if (!session?.eventUrl) return false;
+  if (!preview) return true;
+  if (preview.enrichmentHint) return true;
+  if (preview.enrichmentStatus === "pending") return true;
+  if (!preview.about && !preview.speakers?.length) return true;
+  return false;
+}
+
+async function openEventOutcomeModal(preview, sessionId, session, intentSuggestions) {
+  outcomeSessionId = sessionId;
+  const initial = preview ?? buildEventPreviewFallback(session);
+  updateEventOutcomeModal(initial, intentSuggestions);
+  document.getElementById("modal-event-outcome").showModal();
+
+  if (!previewNeedsEnrichment(initial, session)) return;
+
+  document.getElementById("event-outcome-body").innerHTML = `<p class="field-hint">Reading event page…</p>`;
+
+  try {
+    const fresh = await fetchJson(`/api/sessions/${sessionId}/enrich-event`, { method: "POST" });
+    if (fresh.eventPreview) {
+      updateEventOutcomeModal(fresh.eventPreview, fresh.intentSuggestions);
+      return;
+    }
+    if (fresh.session) {
+      updateEventOutcomeModal(buildEventPreviewFallback(fresh.session), fresh.intentSuggestions);
+    }
+  } catch {
+    updateEventOutcomeModal(initial, intentSuggestions);
+  }
 }
 
 function renderLens(profile, lensImpact) {
@@ -780,7 +1082,7 @@ function renderLens(profile, lensImpact) {
       ${lensPanelHeader()}
       <p class="lens-incomplete">${escapeHtml(status.lensSummary)}</p>
       <div class="lens-progress"><div class="lens-progress-fill" style="width:${status.score}%"></div></div>
-      <button type="button" class="btn btn-text lens-edit-link" data-edit-lens>Complete your lens →</button>`;
+      <button type="button" class="btn btn-text lens-edit-link" data-edit-lens>Complete your unique lens →</button>`;
     bindLensEdit(el);
     return;
   }
@@ -793,15 +1095,15 @@ function renderLens(profile, lensImpact) {
     ${impacts.length ? `
       <p class="lens-impact-label">Today's insights were shaped by:</p>
       <ul class="lens-impact-list">${impacts.map((b) => `<li>${escapeHtml(b)}</li>`).join("")}</ul>` : ""}
-    <button type="button" class="btn btn-text lens-edit-link" data-edit-lens>Edit your lens →</button>`;
+    <button type="button" class="btn btn-text lens-edit-link" data-edit-lens>Edit your unique lens →</button>`;
   bindLensEdit(el);
 }
 
 function lensPanelHeader() {
   return `
     <div class="card-header-row">
-      <h2>Your Lens</h2>
-      <button type="button" class="btn-icon" data-edit-lens title="Edit lens" aria-label="Edit lens">
+      <h2>Your Unique Lens</h2>
+      <button type="button" class="btn-icon" data-edit-lens title="Edit your unique lens" aria-label="Edit your unique lens">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
         </svg>
@@ -837,7 +1139,7 @@ function renderTimeline(d) {
           (s) => `
             <button type="button" class="timeline-card" data-timeline-session="${escapeHtml(s.id)}">
               <span class="timeline-date">${escapeHtml(s.dateLabel ?? formatWhenLabel(s.createdAt))}</span>
-              <strong>${escapeHtml(s.title)}</strong>
+              <span class="timeline-title">${escapeHtml(s.title)}</span>
               <span class="timeline-meta">${s.peopleCount} people · ${s.ideasCount ?? s.claimsCount} ideas</span>
             </button>`
         )
@@ -1061,7 +1363,31 @@ function renderAttend(session) {
   const captures = session.captures ?? [];
   const hasExtracted = people.length > 0 || claims.length > 0;
 
+  const contextBlock =
+    session.attendanceIntent || session.eventEnrichment?.description
+      ? `
+    <section class="attend-context card-nested">
+      ${
+        session.attendanceIntent
+          ? `<div class="attend-intent">
+              <p class="section-kicker">Why you're here</p>
+              <p>${escapeHtml(session.attendanceIntent)}</p>
+            </div>`
+          : ""
+      }
+      ${
+        session.eventEnrichment?.description
+          ? `<div class="attend-event-about">
+              <p class="section-kicker">About this event</p>
+              <p>${escapeHtml(session.eventEnrichment.description)}</p>
+            </div>`
+          : ""
+      }
+    </section>`
+      : "";
+
   return `
+    ${contextBlock}
     <section class="attend-capture">
       <h3>Your capture</h3>
       <p class="field-hint">Dump rough notes, learnings, photos, voice memos, or video from the event. Everything stays on your machine.</p>
@@ -1311,7 +1637,48 @@ function handleAction(action) {
 function openEventModal() {
   document.getElementById("form-error").classList.add("hidden");
   document.getElementById("form-warning").classList.add("hidden");
+  document.getElementById("event-title-preview")?.classList.add("hidden");
+  document.getElementById("event-title-display").textContent = "";
+  document.getElementById("event-title-input").value = "";
+  document.getElementById("event-url-status").textContent = "We'll read the public page for title and context.";
   document.getElementById("modal-event").showModal();
+}
+
+let eventUrlPreviewTimer = null;
+
+async function previewEventUrl(rawUrl) {
+  const statusEl = document.getElementById("event-url-status");
+  const titlePreview = document.getElementById("event-title-preview");
+  const url = rawUrl.trim();
+  if (!url) {
+    titlePreview?.classList.add("hidden");
+    statusEl.textContent = "We'll read the public page for title and context.";
+    return;
+  }
+
+  statusEl.textContent = "Reading event page…";
+  try {
+    const data = await fetchJson("/api/events/preview-url", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ eventUrl: url }),
+    });
+    if (data.title) {
+      document.getElementById("event-title-display").textContent = data.title;
+      document.getElementById("event-title-input").value = data.title;
+      titlePreview?.classList.remove("hidden");
+      if (data.location) {
+        document.getElementById("event-location-input").value = data.location;
+      }
+      statusEl.textContent = "Event found — name filled from the page.";
+    } else {
+      titlePreview?.classList.add("hidden");
+      statusEl.textContent = data.error ?? "Could not read this page yet. Check the URL.";
+    }
+  } catch (err) {
+    titlePreview?.classList.add("hidden");
+    statusEl.textContent = err.message ?? "Could not preview this link.";
+  }
 }
 
 function openLinkModal(sessionId, eventTitle) {
@@ -1357,6 +1724,7 @@ async function ensureDashboardData() {
   window._allActions = dashboardData.allActions ?? dashboardData.actions;
   renderSidebarUser(dashboardData);
   renderSidebarEvents(dashboardData);
+  renderSidebarCapacity(dashboardData);
 }
 
 async function ensureHomeView() {
@@ -1443,6 +1811,11 @@ document.querySelectorAll(".sidebar-nav .nav-item, .sidebar-foot .nav-item").for
   });
 });
 
+document.getElementById("event-url-input")?.addEventListener("input", (e) => {
+  clearTimeout(eventUrlPreviewTimer);
+  eventUrlPreviewTimer = setTimeout(() => previewEventUrl(e.target.value), 600);
+});
+
 document.getElementById("form-event").addEventListener("submit", async (e) => {
   e.preventDefault();
   const form = e.target;
@@ -1451,47 +1824,70 @@ document.getElementById("form-event").addEventListener("submit", async (e) => {
   const warnEl = document.getElementById("form-warning");
   errEl.classList.add("hidden");
   warnEl.classList.add("hidden");
+
+  if (!data.get("eventUrl")?.trim()) {
+    errEl.textContent = "Event page link is required — we use it to name the event and set context.";
+    errEl.classList.remove("hidden");
+    return;
+  }
+
+  const submitBtn = form.querySelector('button[type="submit"]');
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Adding event…";
+  }
   const res = await fetch("/api/sessions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      title: data.get("title"),
+      title: data.get("title") || undefined,
       eventType: data.get("eventType"),
       rawNotes: data.get("rawNotes"),
       eventUrl: data.get("eventUrl") || undefined,
       location: data.get("location") || undefined,
-      skipEventLink: data.get("skipEventLink") === "on",
     }),
   });
   const result = await res.json();
+  if (submitBtn) {
+    submitBtn.disabled = false;
+    submitBtn.textContent = "Add event";
+  }
   if (!res.ok) {
     errEl.textContent = result.error ?? "Failed";
     errEl.classList.remove("hidden");
     return;
   }
-  if (result.eventLinkWarning) {
-    warnEl.textContent = result.eventLinkWarning;
-    warnEl.classList.remove("hidden");
-    setTimeout(() => { document.getElementById("modal-event").close(); form.reset(); loadDashboard(); }, 2000);
-    return;
-  }
   document.getElementById("modal-event").close();
   form.reset();
+  document.getElementById("event-title-preview")?.classList.add("hidden");
   await loadDashboard();
-  if (result.session?.id) openSession(result.session.id, "attend");
+  if (result.session?.id) {
+    openEventOutcomeModal(result.eventPreview, result.session.id, result.session, result.intentSuggestions);
+  }
 });
 
 document.getElementById("form-link").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const data = new FormData(e.target);
+  const form = e.target;
+  const data = new FormData(form);
   const sessionId = data.get("sessionId");
   const errEl = document.getElementById("link-error");
+  const submitBtn = form.querySelector('button[type="submit"]');
+  errEl.classList.add("hidden");
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Reading event page…";
+  }
   const res = await fetch(`/api/sessions/${sessionId}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ eventUrl: data.get("eventUrl") }),
   });
   const result = await res.json();
+  if (submitBtn) {
+    submitBtn.disabled = false;
+    submitBtn.textContent = "Save link";
+  }
   if (!res.ok) {
     errEl.textContent = result.error ?? "Failed";
     errEl.classList.remove("hidden");
@@ -1502,7 +1898,8 @@ document.getElementById("form-link").addEventListener("submit", async (e) => {
     currentSession = { ...result.session, eventLinkInfo: result.eventLinkInfo, eventLinkNudge: { show: false } };
     renderSessionView();
   }
-  loadDashboard();
+  await loadDashboard();
+  openEventOutcomeModal(result.eventPreview, sessionId, result.session, result.intentSuggestions);
 });
 
 document.getElementById("form-lens").addEventListener("submit", async (e) => {
@@ -1532,6 +1929,38 @@ document.getElementById("form-lens").addEventListener("submit", async (e) => {
   document.getElementById("modal-lens").close();
   await loadDashboard();
 });
+
+document.getElementById("btn-close-event-outcome").addEventListener("click", () =>
+  document.getElementById("modal-event-outcome").close()
+);
+document.getElementById("btn-outcome-continue").addEventListener("click", async () => {
+  const intent = document.getElementById("event-intent-input")?.value?.trim();
+  if (!intent) {
+    document.getElementById("event-intent-input")?.focus();
+    return;
+  }
+  if (outcomeSessionId) {
+    await fetchJson(`/api/sessions/${outcomeSessionId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ attendanceIntent: intent }),
+    });
+  }
+  document.getElementById("modal-event-outcome").close();
+  if (outcomeSessionId) openSession(outcomeSessionId, "attend");
+});
+
+function enableDialogBackdropClose(id) {
+  const dialog = document.getElementById(id);
+  if (!dialog) return;
+  dialog.addEventListener("click", (e) => {
+    if (e.target === dialog) dialog.close();
+  });
+}
+
+["modal-lens", "modal-event-outcome", "modal-link", "modal-event", "modal-connections"].forEach(
+  enableDialogBackdropClose
+);
 
 window.openEventModal = openEventModal;
 

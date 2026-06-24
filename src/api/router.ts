@@ -23,6 +23,11 @@ import { createSession } from "../lib/session.js";
 import { getProfileStatus } from "../lib/profile-status.js";
 import { buildActionItems, buildAllActionItems, buildSessionActionItems, capabilitiesUnlocked, eventLinkNudge, sessionLoopLabel, sessionNextTab } from "../lib/actions.js";
 import { buildContentHub } from "../lib/content-hub.js";
+import { buildEventPreview } from "../lib/event-preview.js";
+import { enrichEventFromUrl } from "../lib/event-enrichment.js";
+import { buildEventIntentSuggestions } from "../lib/event-intent.js";
+import { buildCapacitySidebarModel } from "../lib/capacity-display.js";
+import { computeLearningStreak } from "../lib/learning-streak.js";
 import { parseEventUrl, isValidEventUrl } from "../lib/event-url.js";
 import {
   saveCaptureFile,
@@ -97,6 +102,24 @@ function parseRequestBody(body: unknown): Record<string, unknown> {
   return {};
 }
 
+async function ensureEventEnrichment(session: EventSession, force = false): Promise<EventSession> {
+  if (!session.eventUrl) return session;
+
+  const hasCached =
+    session.eventEnrichment &&
+    (session.eventEnrichment.description || session.eventEnrichment.speakers.length > 0);
+  if (!force && hasCached) return session;
+
+  const enrichment = await enrichEventFromUrl(session.eventUrl);
+  if (!enrichment) return session;
+
+  return {
+    ...session,
+    eventEnrichment: enrichment,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 async function handleDashboard(): Promise<ApiResult> {
   const progress = await loadProgress();
   const sessions = await listSessions();
@@ -110,7 +133,9 @@ async function handleDashboard(): Promise<ApiResult> {
   const allActions = buildAllActionItems(sessions, profile);
   const contentSessions = sessions.length > 0 ? sessions : featured ? [featured] : [];
   const contentHub = buildContentHub(contentSessions);
+  const learningStreak = computeLearningStreak(sessions);
   const nextLevelDef = next.next ? getLevelDefinition(next.next as TrustLevel) : null;
+  const capacitySidebar = buildCapacitySidebarModel(progress.level, progress.totalXp);
   const timelineSessions = sessions.length > 0 ? sessions : featured ? [featured] : [];
 
   return {
@@ -145,6 +170,8 @@ async function handleDashboard(): Promise<ApiResult> {
       actions,
       allActions,
       contentHub,
+      learningStreak,
+      capacitySidebar,
       sessions: timelineSessions.map((s) => ({
         id: s.id,
         title: s.title,
@@ -222,6 +249,44 @@ export async function routeApi(
     };
   }
 
+  if (pathname === "/api/events/preview-url" && method === "POST") {
+    const body = parseRequestBody(rawBody) as { eventUrl?: string };
+    if (!body.eventUrl?.trim() || !isValidEventUrl(body.eventUrl)) {
+      return { status: 400, body: { error: "Valid event URL required" } };
+    }
+
+    const eventUrl = parseEventUrl(body.eventUrl)!.url;
+    const enrichment = await enrichEventFromUrl(eventUrl);
+    const profile = await loadProfileOrExample();
+
+    if (!enrichment) {
+      return {
+        status: 200,
+        body: {
+          eventUrl,
+          title: null,
+          intentSuggestions: [],
+          error: "Could not read this event page yet.",
+        },
+      };
+    }
+
+    const intentSuggestions = buildEventIntentSuggestions(enrichment, profile);
+
+    return {
+      status: 200,
+      body: {
+        eventUrl,
+        title: enrichment.title,
+        description: enrichment.description,
+        location: enrichment.location,
+        attendeeCount: enrichment.attendeeCount,
+        hosts: enrichment.speakers.filter((s) => s.role === "host"),
+        intentSuggestions,
+      },
+    };
+  }
+
   if (pathname === "/api/sessions" && method === "GET") {
     return { status: 200, body: await listSessions() };
   }
@@ -234,17 +299,8 @@ export async function routeApi(
       eventUrl?: string;
       location?: string;
       skipEventLink?: boolean;
+      attendanceIntent?: string;
     };
-
-    if (!body.title?.trim()) {
-      return { status: 400, body: { error: "Title is required" } };
-    }
-    if (!body.rawNotes?.trim()) {
-      return { status: 400, body: { error: "Notes are required" } };
-    }
-    if (!EVENT_TYPES.includes(body.eventType ?? "mixer")) {
-      return { status: 400, body: { error: "Invalid event type" } };
-    }
 
     let eventUrl: string | undefined;
     let eventLinkWarning: string | undefined;
@@ -262,25 +318,59 @@ export async function routeApi(
         "No event link added. Adding a Luma, Eventbrite, or conference URL helps Remember speakers and context.";
     }
 
+    if (!body.title?.trim() && !eventUrl) {
+      return { status: 400, body: { error: "Add an event page link or enter a title" } };
+    }
+    if (!body.rawNotes?.trim()) {
+      return { status: 400, body: { error: "Notes are required" } };
+    }
+    if (!EVENT_TYPES.includes(body.eventType ?? "mixer")) {
+      return { status: 400, body: { error: "Invalid event type" } };
+    }
+
     const progress = await loadProgress();
+    let savedSession: EventSession;
+    let updatedProgress = progress;
+
     const { session, progress: updated } = createSession({
-      title: body.title.trim(),
+      title: body.title?.trim() || "Event",
       eventType: body.eventType ?? "mixer",
       rawNotes: body.rawNotes.trim(),
       eventUrl,
       location: body.location?.trim(),
       userProgress: progress,
     });
+    updatedProgress = updated;
+    savedSession = session;
 
-    await saveSession(session);
-    await saveProgress(updated);
+    if (body.attendanceIntent?.trim()) {
+      savedSession = { ...savedSession, attendanceIntent: body.attendanceIntent.trim() };
+    }
+
+    await saveSession(savedSession);
+    await saveProgress(updatedProgress);
+
+    if (eventUrl) {
+      savedSession = await ensureEventEnrichment(savedSession, true);
+      if (savedSession.eventEnrichment?.title) {
+        savedSession = { ...savedSession, title: savedSession.eventEnrichment.title };
+      }
+      await saveSession(savedSession);
+    }
+
+    const profile = await loadProfileOrExample();
+    const intentSuggestions = savedSession.eventEnrichment
+      ? buildEventIntentSuggestions(savedSession.eventEnrichment, profile)
+      : [];
 
     return {
       status: 201,
       body: {
-        session,
+        session: savedSession,
         eventLinkWarning,
         eventLinkInfo: eventUrl ? parseEventUrl(eventUrl) : null,
+        eventPreview: buildEventPreview(savedSession),
+        intentSuggestions,
       },
     };
   }
@@ -300,13 +390,15 @@ export async function routeApi(
       eventUrl?: string;
       rawNotes?: string;
       screenshotDescriptions?: string[];
+      attendanceIntent?: string;
     };
 
     const hasEventUrl = body.eventUrl !== undefined;
     const hasNotes = body.rawNotes !== undefined;
     const hasScreenshots = body.screenshotDescriptions !== undefined;
+    const hasIntent = body.attendanceIntent !== undefined;
 
-    if (!hasEventUrl && !hasNotes && !hasScreenshots) {
+    if (!hasEventUrl && !hasNotes && !hasScreenshots && !hasIntent) {
       return { status: 400, body: { error: "No valid fields to update" } };
     }
 
@@ -332,16 +424,37 @@ export async function routeApi(
         : session.screenshotDescriptions;
     }
 
+    if (hasIntent) {
+      updated.attendanceIntent = String(body.attendanceIntent ?? "").trim();
+    }
+
     await saveSession(updated);
+    let savedSession = updated;
+    if (hasEventUrl) {
+      savedSession = await ensureEventEnrichment(updated, true);
+      if (savedSession.eventEnrichment?.title) {
+        savedSession = { ...savedSession, title: savedSession.eventEnrichment.title };
+      }
+      await saveSession(savedSession);
+    }
+
+    const profile = await loadProfileOrExample();
+    const preview = buildEventPreview(savedSession);
+    const intentSuggestions = savedSession.eventEnrichment
+      ? buildEventIntentSuggestions(savedSession.eventEnrichment, profile)
+      : [];
+
     return {
       status: 200,
       body: {
         session: {
-          ...updated,
-          eventLinkNudge: eventLinkNudge(updated),
-          eventLinkInfo: updated.eventUrl ? parseEventUrl(updated.eventUrl) : null,
+          ...savedSession,
+          eventLinkNudge: eventLinkNudge(savedSession),
+          eventLinkInfo: savedSession.eventUrl ? parseEventUrl(savedSession.eventUrl) : null,
         },
-        eventLinkInfo: updated.eventUrl ? parseEventUrl(updated.eventUrl) : null,
+        eventLinkInfo: savedSession.eventUrl ? parseEventUrl(savedSession.eventUrl) : null,
+        eventPreview: preview,
+        intentSuggestions,
       },
     };
   }
@@ -486,6 +599,44 @@ export async function routeApi(
       const message = err instanceof Error ? err.message : "Upload failed";
       return { status: 400, body: { error: message } };
     }
+  }
+
+  if (pathname.match(/^\/api\/sessions\/[^/]+\/enrich-event$/) && method === "POST") {
+    const id = pathname.match(/^\/api\/sessions\/([^/]+)\/enrich-event$/)?.[1];
+    if (!id) {
+      return { status: 400, body: { error: "Session id required" } };
+    }
+    const session = await resolveSession(id);
+    if (!session) {
+      return { status: 404, body: { error: "Session not found" } };
+    }
+    if (!session.eventUrl) {
+      return { status: 400, body: { error: "No event URL on this session" } };
+    }
+
+    const enriched = await ensureEventEnrichment(session, true);
+    if (enriched.eventEnrichment?.title) {
+      enriched.title = enriched.eventEnrichment.title;
+    }
+    await saveSession(enriched);
+    const preview = buildEventPreview(enriched);
+    const profile = await loadProfileOrExample();
+    const intentSuggestions = enriched.eventEnrichment
+      ? buildEventIntentSuggestions(enriched.eventEnrichment, profile)
+      : [];
+
+    return {
+      status: 200,
+      body: {
+        session: {
+          ...enriched,
+          eventLinkNudge: eventLinkNudge(enriched),
+          eventLinkInfo: parseEventUrl(enriched.eventUrl!),
+        },
+        eventPreview: preview,
+        intentSuggestions,
+      },
+    };
   }
 
   if (pathname.startsWith("/api/sessions/") && method === "GET") {
