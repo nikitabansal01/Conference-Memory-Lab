@@ -272,7 +272,7 @@ function showDashboardWarning(message) {
   const note = document.createElement("p");
   note.className = "dashboard-warning field-hint";
   note.textContent = `Live sync unavailable (${message}). You can still take the app tour and explore the sample event.`;
-  hero.querySelector(".hero-copy")?.appendChild(note);
+  hero.querySelector(".hero-headline")?.after(note);
 }
 
 function renderHome() {
@@ -667,34 +667,26 @@ function renderSidebarUser(d) {
     </div>`;
 }
 
+function buildHeroLead(d) {
+  const session = d.featuredSession;
+  if (!session) {
+    return `<p class="hero-lead">Log a past event to start your five-step memory loop below.</p>`;
+  }
+
+  if (session.isSample) {
+    return `<p class="hero-lead">See how the loop works in the sample event below, then add your own.</p>`;
+  }
+
+  const { activeStep } = loopStepSummary(session);
+  return `<p class="hero-lead">Your memory loop picks up below at ${escapeHtml(activeStep.label)} — ${escapeHtml(activeStep.verb.charAt(0).toLowerCase() + activeStep.verb.slice(1))}.</p>`;
+}
+
 function renderHero(d) {
   const el = document.getElementById("hero");
-  const showTourPrompt = d.showOnboarding || !d.onboarding?.explicit;
   el.innerHTML = `
-    <div class="hero-copy">
-      <p class="hero-greeting">${timeGreeting()}, ${escapeHtml(firstName(d.profile.name))}</p>
-      <h1 class="hero-headline">One idea from yesterday could shape your next move.</h1>
-      <p class="hero-mission">We help you remember what mattered, think deeper, and turn it into impact.</p>
-      ${
-        showTourPrompt
-          ? `<div class="hero-actions">
-              <button type="button" class="btn btn-primary" id="btn-hero-tour">Take the app tour</button>
-              <p class="hero-tour-hint">5 quick steps — lens, capacity, your first event, the loop, and connections.</p>
-            </div>`
-          : ""
-      }
-    </div>
-    <div class="hero-visual" aria-hidden="true">
-      <div class="hero-desk">
-        <div class="hero-note">
-          <span class="hero-note-label">Key insight</span>
-          <span class="hero-note-text">${escapeHtml((d.featuredSession?.stats?.biggestIdea ?? "Capture what stood out").slice(0, 60))}…</span>
-        </div>
-        <div class="hero-polaroid"></div>
-        <div class="hero-sprig"></div>
-      </div>
-    </div>`;
-  document.getElementById("btn-hero-tour")?.addEventListener("click", () => replayWalkthrough());
+    <p class="hero-greeting">${timeGreeting()}, ${escapeHtml(firstName(d.profile.name))}</p>
+    <h1 class="hero-headline">One idea from yesterday could shape your next move.</h1>
+    ${buildHeroLead(d)}`;
 }
 
 function renderLatestEvent(d) {
