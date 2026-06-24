@@ -12,6 +12,10 @@ const STAGE_ORDER: SessionStage[] = [
   "published",
 ];
 
+function asArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? value : [];
+}
+
 export function mergeSessionUpdate(
   session: EventSession,
   update: Partial<EventSession>
@@ -20,14 +24,21 @@ export function mergeSessionUpdate(
     ...session,
     ...update,
     updatedAt: new Date().toISOString(),
-    people: update.people ?? session.people,
-    interactions: update.interactions ?? session.interactions,
-    claims: update.claims ?? session.claims,
-    themes: update.themes ?? session.themes,
-    assumptionChallenges: update.assumptionChallenges ?? session.assumptionChallenges,
-    contentAngles: update.contentAngles ?? session.contentAngles,
-    followUpDrafts: update.followUpDrafts ?? session.followUpDrafts,
-    contentDrafts: update.contentDrafts ?? session.contentDrafts,
+    people: update.people !== undefined ? asArray(update.people) : asArray(session.people),
+    interactions:
+      update.interactions !== undefined ? asArray(update.interactions) : asArray(session.interactions),
+    claims: update.claims !== undefined ? asArray(update.claims) : asArray(session.claims),
+    themes: update.themes !== undefined ? asArray(update.themes) : asArray(session.themes),
+    assumptionChallenges:
+      update.assumptionChallenges !== undefined
+        ? asArray(update.assumptionChallenges)
+        : asArray(session.assumptionChallenges),
+    contentAngles:
+      update.contentAngles !== undefined ? asArray(update.contentAngles) : asArray(session.contentAngles),
+    followUpDrafts:
+      update.followUpDrafts !== undefined ? asArray(update.followUpDrafts) : asArray(session.followUpDrafts),
+    contentDrafts:
+      update.contentDrafts !== undefined ? asArray(update.contentDrafts) : asArray(session.contentDrafts),
     evalScores: update.evalScores ?? session.evalScores,
   };
 }

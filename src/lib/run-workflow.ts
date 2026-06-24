@@ -55,34 +55,49 @@ function assertMinStage(session: EventSession, workflow: RunnableWorkflow): void
   }
 }
 
+function asArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? value : [];
+}
+
 function normalizeWorkflowUpdate(
   workflow: RunnableWorkflow,
   update: Partial<EventSession>
 ): Partial<EventSession> {
-  if (workflow !== "extract") return update;
+  if (workflow === "extract") {
+    const people = asArray<EventSession["people"][number]>(update.people)
+      .filter((p) => p && String(p.name ?? "").trim())
+      .map((p, i) => ({
+        ...p,
+        id: p.id || `person-${i + 1}`,
+        name: String(p.name).trim(),
+        role: p.role ?? "unknown",
+        metInPerson: Boolean(p.metInPerson),
+      }));
 
-  const people = (update.people ?? [])
-    .filter((p) => p && String(p.name ?? "").trim())
-    .map((p, i) => ({
-      ...p,
-      id: p.id || `person-${i + 1}`,
-      name: String(p.name).trim(),
-      role: p.role ?? "unknown",
-      metInPerson: Boolean(p.metInPerson),
-    }));
+    const claims = normalizeClaims(update.claims as unknown[] | undefined);
 
-  const claims = normalizeClaims(update.claims as unknown[] | undefined);
+    const themes = asArray<EventSession["themes"][number]>(update.themes)
+      .filter((t) => t && String(t.label ?? "").trim())
+      .map((t, i) => ({
+        ...t,
+        id: t.id || `theme-${i + 1}`,
+        label: String(t.label).trim(),
+        claimIds: Array.isArray(t.claimIds) ? t.claimIds : [],
+      }));
 
-  const themes = (update.themes ?? [])
-    .filter((t) => t && String(t.label ?? "").trim())
-    .map((t, i) => ({
-      ...t,
-      id: t.id || `theme-${i + 1}`,
-      label: String(t.label).trim(),
-      claimIds: Array.isArray(t.claimIds) ? t.claimIds : [],
-    }));
+    return { ...update, people, claims, themes };
+  }
 
-  return { ...update, people, claims, themes };
+  if (workflow === "draft") {
+    return {
+      ...update,
+      contentAngles: asArray(update.contentAngles),
+      contentDrafts: asArray(update.contentDrafts),
+      followUpDrafts: asArray(update.followUpDrafts),
+    };
+  }
+
+  return update;
 }
 
 function mergeCritiqueExtras(

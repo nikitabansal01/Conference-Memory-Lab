@@ -18,14 +18,14 @@ import {
   getCumulativeActions,
 } from "../trust/levels.js";
 import { formatLevelBadge } from "../gamification/xp.js";
-import type { EventSession, EventType, ExpertiseProfile, TrustLevel, AssumptionChallenge, Theme, ContentAngle } from "../models/types.js";
+import type { EventSession, EventType, ExpertiseProfile, TrustLevel, AssumptionChallenge, Theme, ContentAngle, Claim, ContentDraft, FollowUpDraft, ContentPlatform } from "../models/types.js";
 import { createSession, applyEnrichmentTitle, resolveSessionTitle, titleFromEnrichment } from "../lib/session.js";
 import { getProfileStatus } from "../lib/profile-status.js";
 import { buildActionItems, buildAllActionItems, buildSessionActionItems, capabilitiesUnlocked, eventLinkNudge, sessionLoopLabel, sessionNextTab } from "../lib/actions.js";
 import { buildContentHub } from "../lib/content-hub.js";
 import { buildCapacitySidebarModel } from "../lib/capacity-display.js";
 import { computeLearningStreak } from "../lib/learning-streak.js";
-import { normalizeSessionClaims } from "../lib/claims.js";
+import { normalizeClaims, normalizeSessionClaims } from "../lib/claims.js";
 import {
   mergeOnboardingState,
   normalizeOnboarding,
@@ -41,7 +41,7 @@ import {
   MAX_CAPTURE_BYTES,
 } from "../lib/captures.js";
 import type { RequestAuth } from "../lib/auth.js";
-import { getClerkPublishableKey, isAuthConfigured, getClerkSetupStatus } from "../lib/auth.js";
+import { getClerkPublishableKey, isAuthConfigured, getClerkSetupStatus, isLocalDevAuthBypass } from "../lib/auth.js";
 import { isLlmConfigured } from "../lib/llm.js";
 import { runSessionWorkflow, type RunnableWorkflow } from "../lib/run-workflow.js";
 
@@ -165,6 +165,47 @@ function parseContentAngles(raw: unknown): ContentAngle[] | undefined {
         : [],
       predictedAudience: String(record.predictedAudience ?? ""),
       claimIds: Array.isArray(record.claimIds) ? record.claimIds.map(String) : [],
+    };
+  });
+}
+
+const CONTENT_PLATFORMS = ["linkedin", "twitter", "newsletter", "blog", "substack", "medium"] as const;
+
+function parseClaims(raw: unknown): Claim[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  return normalizeClaims(raw);
+}
+
+function parseContentDrafts(raw: unknown): ContentDraft[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  return raw.map((item, i) => {
+    const record = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+    const platformRaw = String(record.platform ?? "linkedin");
+    const platform = CONTENT_PLATFORMS.includes(platformRaw as ContentPlatform)
+      ? (platformRaw as ContentPlatform)
+      : "linkedin";
+    return {
+      id: typeof record.id === "string" && record.id ? record.id : `draft-${i + 1}`,
+      angleId: String(record.angleId ?? ""),
+      platform,
+      body: String(record.body ?? ""),
+      reasoningTrace: Array.isArray(record.reasoningTrace) ? record.reasoningTrace.map(String) : [],
+    };
+  });
+}
+
+function parseFollowUpDrafts(raw: unknown): FollowUpDraft[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  return raw.map((item, i) => {
+    const record = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+    const tone = record.tone;
+    return {
+      id: typeof record.id === "string" && record.id ? record.id : `followup-${i + 1}`,
+      personId: String(record.personId ?? ""),
+      message: String(record.message ?? ""),
+      contextUsed: Array.isArray(record.contextUsed) ? record.contextUsed.map(String) : [],
+      tone:
+        tone === "warm" || tone === "professional" || tone === "curious" ? tone : "warm",
     };
   });
 }
@@ -321,7 +362,8 @@ export async function routeApi(
       status: 200,
       body: {
         clerkPublishableKey: getClerkPublishableKey(),
-        authRequired: isAuthConfigured() || Boolean(process.env.VERCEL),
+        authRequired: !isLocalDevAuthBypass() && (isAuthConfigured() || Boolean(process.env.VERCEL)),
+        localDevAuthBypass: isLocalDevAuthBypass(),
         clerkSetup: getClerkSetupStatus(),
         llmConfigured: isLlmConfigured(),
       },
@@ -532,6 +574,9 @@ export async function routeApi(
       assumptionChallenges?: unknown;
       themes?: unknown;
       contentAngles?: unknown;
+      claims?: unknown;
+      contentDrafts?: unknown;
+      followUpDrafts?: unknown;
     };
 
     const hasEventUrl = body.eventUrl !== undefined;
@@ -542,13 +587,18 @@ export async function routeApi(
     const parsedChallenges = parseAssumptionChallenges(body.assumptionChallenges);
     const parsedThemes = parseThemes(body.themes);
     const parsedAngles = parseContentAngles(body.contentAngles);
+    const parsedClaims = parseClaims(body.claims);
+    const parsedDrafts = parseContentDrafts(body.contentDrafts);
+    const parsedFollowUps = parseFollowUpDrafts(body.followUpDrafts);
     const hasThinkEdits =
       hasMatteredLine ||
       parsedChallenges !== undefined ||
       parsedThemes !== undefined ||
       parsedAngles !== undefined;
+    const hasAttendEdits = parsedClaims !== undefined;
+    const hasCreateEdits = parsedDrafts !== undefined || parsedFollowUps !== undefined;
 
-    if (!hasEventUrl && !hasNotes && !hasScreenshots && !hasIntent && !hasThinkEdits) {
+    if (!hasEventUrl && !hasNotes && !hasScreenshots && !hasIntent && !hasThinkEdits && !hasAttendEdits && !hasCreateEdits) {
       return { status: 400, body: { error: "No valid fields to update" } };
     }
 
@@ -595,6 +645,18 @@ export async function routeApi(
 
     if (parsedAngles !== undefined) {
       updated.contentAngles = parsedAngles;
+    }
+
+    if (parsedClaims !== undefined) {
+      updated.claims = parsedClaims;
+    }
+
+    if (parsedDrafts !== undefined) {
+      updated.contentDrafts = parsedDrafts;
+    }
+
+    if (parsedFollowUps !== undefined) {
+      updated.followUpDrafts = parsedFollowUps;
     }
 
     await saveSession(updated, auth.userId);

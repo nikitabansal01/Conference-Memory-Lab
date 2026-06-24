@@ -54,10 +54,14 @@ export function getDevUserId(): string {
 }
 
 function allowLocalDevBypass(): boolean {
-  if (isAuthConfigured()) return false;
   if (process.env.VERCEL) return false;
   if (process.env.NODE_ENV === "production") return false;
+  if (process.env.AUTH_REQUIRED === "true") return false;
   return true;
+}
+
+export function isLocalDevAuthBypass(): boolean {
+  return allowLocalDevBypass();
 }
 
 async function isEmailAllowed(userId: string): Promise<boolean> {

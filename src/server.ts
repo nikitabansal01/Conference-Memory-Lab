@@ -1,6 +1,10 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
 import { join, extname } from "node:path";
+import { loadLocalEnv } from "./lib/env.js";
+
+loadLocalEnv();
+
 import { routeApi } from "./api/router.js";
 import { ROOT } from "./lib/storage.js";
 import { authenticateRequest, AuthError, isPublicApiPath } from "./lib/auth.js";

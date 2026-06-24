@@ -42,6 +42,14 @@ const LOOP = [
   { key: "review", label: "Review", verb: "Approve", tab: "review" },
 ];
 
+const STEP_META = {
+  attend: { step: 1, title: "Attend", subtitle: "Capture notes and media while the event is fresh" },
+  think: { step: 2, title: "Think", subtitle: "Connect takeaways to your unique lens" },
+  connect: { step: 3, title: "Connect", subtitle: "Reach out with context, not generic invites" },
+  create: { step: 4, title: "Create", subtitle: "Draft posts anchored to your voice" },
+  review: { step: 5, title: "Review", subtitle: "Score grounding and approve before sharing" },
+};
+
 const STAGE_LOOP_INDEX = {
   ingested: 0,
   extracted: 1,
@@ -364,7 +372,6 @@ async function boot() {
 
   const publishableKey = appConfig?.clerkPublishableKey;
   const authRequired = Boolean(appConfig?.authRequired);
-  const needsClerk = Boolean(publishableKey);
 
   if (authRequired && !publishableKey) {
     showAuthGate();
@@ -390,7 +397,7 @@ async function boot() {
     return;
   }
 
-  if (needsClerk) {
+  if (authRequired && publishableKey) {
     try {
       if (isSignInMode()) {
         showAuthLoading();
@@ -425,6 +432,15 @@ async function boot() {
       }
     }
     return;
+  }
+
+  if (publishableKey) {
+    try {
+      clerkInstance = await loadClerkJs(publishableKey);
+      bindClerkSignedInListener();
+    } catch {
+      /* Clerk optional on localhost when authRequired is false */
+    }
   }
 
   hideAuthGate();
@@ -1448,6 +1464,7 @@ function buildEventPreviewFallback(session) {
       company: speaker.company,
       topic: speaker.topic,
       linkedInUrl: speaker.linkedInUrl,
+      role: speaker.role,
     })),
     topics: enrichment?.topics ?? [],
     enrichmentHint: enrichment ? undefined : "We saved the link but could not read this page yet. Try again later or run Remember on your notes.",
@@ -2157,9 +2174,31 @@ async function openSession(id, tab = "think") {
   }
 }
 
+function asArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function normalizeSessionArrays(session) {
+  if (!session) return session;
+  return {
+    ...session,
+    people: asArray(session.people),
+    claims: asArray(session.claims),
+    themes: asArray(session.themes),
+    assumptionChallenges: asArray(session.assumptionChallenges),
+    contentAngles: asArray(session.contentAngles),
+    contentDrafts: asArray(session.contentDrafts),
+    followUpDrafts: asArray(session.followUpDrafts),
+    captures: asArray(session.captures),
+  };
+}
+
 function renderSessionView() {
+  currentSession = normalizeSessionArrays(currentSession);
   const session = currentSession;
   if (!session) return;
+
+  syncAllStepCollapseFromPanels(session.id);
 
   const whenLabel = formatWhenLabel(session.createdAt);
   const typeLabel = session.eventType.charAt(0).toUpperCase() + session.eventType.slice(1);
@@ -2241,6 +2280,396 @@ function setActiveTab(tab) {
   document.getElementById(`panel-${tab}`)?.classList.add("active");
 }
 
+function wrapStepPanel(stepKey, bodyHtml, actionsHtml = "") {
+  const meta = STEP_META[stepKey] ?? { step: "?", title: stepKey, subtitle: "" };
+  return `
+    <header class="step-header">
+      <div class="step-header-main">
+        <span class="step-badge">Step ${meta.step}</span>
+        <div class="step-header-copy">
+          <h2 class="step-title">${escapeHtml(meta.title)}</h2>
+          <p class="step-subtitle">${escapeHtml(meta.subtitle)}</p>
+        </div>
+      </div>
+      ${actionsHtml ? `<div class="step-header-actions">${actionsHtml}</div>` : ""}
+    </header>
+    <div class="step-body">${bodyHtml}</div>`;
+}
+
+function renderStepSection(title, content, hint = "") {
+  return `
+    <section class="step-section">
+      <div class="step-section-head">
+        <h3 class="step-section-title">${escapeHtml(title)}</h3>
+        ${hint ? `<p class="step-section-hint">${escapeHtml(hint)}</p>` : ""}
+      </div>
+      <div class="step-section-body">${content}</div>
+    </section>`;
+}
+
+function renderStepEmpty(title, body) {
+  return `
+    <div class="step-empty">
+      <div class="step-empty-icon" aria-hidden="true">○</div>
+      <strong>${escapeHtml(title)}</strong>
+      <p>${body}</p>
+    </div>`;
+}
+
+function flowEditHint(text = "tap to edit…") {
+  return `<span class="flow-edit-hint">${escapeHtml(text)}</span>`;
+}
+
+function renderFlowSheet(barHtml, bodyHtml, footerHtml = "") {
+  return `
+    <div class="flow-panel">
+      <article class="flow-sheet">
+        ${barHtml ? `<div class="flow-sheet-bar">${barHtml}</div>` : ""}
+        ${bodyHtml}
+        ${footerHtml}
+      </article>
+    </div>`;
+}
+
+function renderFlowBlock(title, content, options = {}) {
+  const opts = typeof options === "boolean" ? { editable: options } : options;
+  const hintText = opts.hint ?? (opts.editable ? "tap to edit…" : "");
+  const labelPart = title
+    ? `<h3 class="flow-block-label">${escapeHtml(title)}${hintText ? ` ${flowEditHint(hintText)}` : ""}</h3>`
+    : "";
+  return `<div class="flow-block">${labelPart}${content}</div>`;
+}
+
+function renderFlowEmpty(message) {
+  return `<p class="flow-empty">${escapeHtml(message)}</p>`;
+}
+
+
+function renderTakeawayBullets(claims) {
+  return `<ul class="flow-bullet-list">
+    ${claims
+      .map((c) => {
+        const text = typeof c === "string" ? c : c.text;
+        const isNonObvious = text.includes("[non-obvious]");
+        return `<li class="flow-bullet-item${isNonObvious ? " is-highlight" : ""}">${isNonObvious ? '<span class="flow-tag">Non-obvious</span> ' : ""}${escapeHtml(formatClaimText(text))}</li>`;
+      })
+      .join("")}
+  </ul>`;
+}
+
+function renderWorkflowActions(primaryHtml, hint = "") {
+  return `
+    <div class="step-workflow-inline">
+      ${primaryHtml}
+      ${hint ? `<p class="step-workflow-hint">${escapeHtml(hint)}</p>` : ""}
+    </div>`;
+}
+
+function renderPersonChip(person) {
+  const initial = String(person.name ?? "?").charAt(0).toUpperCase();
+  return `
+    <article class="person-chip">
+      <span class="person-chip-avatar" aria-hidden="true">${escapeHtml(initial)}</span>
+      <div class="person-chip-copy">
+        <strong>${escapeHtml(person.name)}</strong>
+        <span>${escapeHtml(person.role ?? "unknown")}</span>
+      </div>
+    </article>`;
+}
+
+function renderTakeawayCard(text) {
+  const isNonObvious = text.includes("[non-obvious]");
+  return `
+    <article class="takeaway-card${isNonObvious ? " is-highlight" : ""}">
+      ${isNonObvious ? '<span class="takeaway-tag">Non-obvious</span>' : ""}
+      <p>${escapeHtml(formatClaimText(text))}</p>
+    </article>`;
+}
+
+const ANALYZE_TAKEAWAYS_TOOLTIP =
+  "Uses your Unique Lens, the event description, speaker info, your notes, and any uploaded photos, audio, or video.";
+
+const attendCollapseBySession = new Map();
+
+function stepCollapseStorageKey(sessionId, stepKey, section) {
+  return `${sessionId}:${stepKey}:${section}`;
+}
+
+function isStepSectionOpen(sessionId, stepKey, section, defaultOpen = true) {
+  const key = stepCollapseStorageKey(sessionId, stepKey, section);
+  if (!attendCollapseBySession.has(key)) return defaultOpen;
+  return attendCollapseBySession.get(key);
+}
+
+function syncStepCollapseFromPanel(panel, sessionId, stepKey) {
+  panel?.querySelectorAll(`details[data-step-section][data-step="${stepKey}"]`).forEach((el) => {
+    attendCollapseBySession.set(stepCollapseStorageKey(sessionId, stepKey, el.dataset.stepSection), el.open);
+  });
+}
+
+function syncAllStepCollapseFromPanels(sessionId) {
+  syncStepCollapseFromPanel(document.getElementById("panel-attend"), sessionId, "attend");
+  syncStepCollapseFromPanel(document.getElementById("panel-think"), sessionId, "think");
+  syncStepCollapseFromPanel(document.getElementById("panel-connect"), sessionId, "connect");
+  syncStepCollapseFromPanel(document.getElementById("panel-create"), sessionId, "create");
+  syncStepCollapseFromPanel(document.getElementById("panel-review"), sessionId, "review");
+}
+
+function renderStepCollapseSection(sessionId, stepKey, sectionKey, title, bodyHtml, options = {}) {
+  const open = isStepSectionOpen(sessionId, stepKey, sectionKey, options.defaultOpen ?? true);
+  const editIcon = options.editable
+    ? `<span class="step-collapse-edit-icon" aria-hidden="true" title="Editable"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></span>`
+    : "";
+  const preview = options.preview
+    ? `<p class="step-collapse-preview">${escapeHtml(options.preview)}</p>`
+    : "";
+  return `
+    <details class="step-collapse${options.editable ? " is-editable" : ""}" data-step="${escapeHtml(stepKey)}" data-step-section="${escapeHtml(sectionKey)}"${open ? " open" : ""}>
+      <summary class="step-collapse-summary">
+        <div class="step-collapse-summary-main">
+          <span class="section-kicker step-collapse-title">${escapeHtml(title)}</span>
+          ${preview}
+        </div>
+        <span class="step-collapse-summary-icons">
+          ${editIcon}
+          <span class="step-collapse-chevron" aria-hidden="true"></span>
+        </span>
+      </summary>
+      <div class="step-collapse-body">${bodyHtml}</div>
+    </details>`;
+}
+
+const FLOW_ADD_ROW_ICON = `<span class="flow-icon-plus" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span>`;
+
+function renderFlowAddRowButton(listType, label = "Add", options = {}) {
+  if (options.subtle) {
+    return `<button type="button" class="flow-add-row flow-add-row-subtle" data-add-row="${escapeHtml(listType)}" aria-label="${escapeHtml(label)}">+ ${escapeHtml(label)}</button>`;
+  }
+  return `<button type="button" class="flow-add-row btn btn-text btn-compact" data-add-row="${escapeHtml(listType)}" aria-label="${escapeHtml(label)}">${FLOW_ADD_ROW_ICON}<span>${escapeHtml(label)}</span></button>`;
+}
+
+function canEditThink(session) {
+  return session.stage !== "ingested";
+}
+
+function renderStepSections(sessionId, stepKey, sections) {
+  return `<div class="step-sections">${sections.join("")}</div>`;
+}
+
+function bindStepCollapseHandlers(panel, sessionId, stepKey) {
+  panel?.querySelectorAll(`details[data-step-section][data-step="${stepKey}"]`).forEach((el) => {
+    el.addEventListener("toggle", () => {
+      attendCollapseBySession.set(stepCollapseStorageKey(sessionId, stepKey, el.dataset.stepSection), el.open);
+    });
+  });
+}
+
+function renderStepActionRow(contentHtml, align = "end") {
+  return `<div class="step-action-row step-action-row-${align}">${contentHtml}</div>`;
+}
+
+// Back-compat aliases for attend panel refresh
+function attendCollapseStorageKey(sessionId, section) {
+  return stepCollapseStorageKey(sessionId, "attend", section);
+}
+
+function isAttendSectionOpen(sessionId, section, defaultOpen = false) {
+  return isStepSectionOpen(sessionId, "attend", section, defaultOpen);
+}
+
+function syncAttendCollapseFromPanel(panel, sessionId) {
+  syncStepCollapseFromPanel(panel, sessionId, "attend");
+}
+
+function renderAttendCollapseSection(sessionId, sectionKey, title, bodyHtml, options = {}) {
+  return renderStepCollapseSection(sessionId, "attend", sectionKey, title, bodyHtml, {
+    defaultOpen: false,
+    ...options,
+  });
+}
+
+function attendCollapsePreview(text, maxChars = 200) {
+  if (!text?.trim()) return "";
+  const flat = text.trim().replace(/\s+/g, " ");
+  return flat.length > maxChars ? `${flat.slice(0, maxChars - 1)}…` : flat;
+}
+
+function attendNotesPreview(notes) {
+  if (!notes?.trim()) return "No notes yet — tap to add your capture…";
+  const lines = notes.trim().split("\n").filter(Boolean).slice(0, 4);
+  return attendCollapsePreview(lines.join(" · "));
+}
+
+function attendTakeawaysPreview(claims) {
+  const texts = claims.map((c) => formatClaimText(resolveClaimText(c))).filter(Boolean).slice(0, 3);
+  if (!texts.length) return "Run analyze to pull out what mattered…";
+  return attendCollapsePreview(texts.join(" · "));
+}
+
+function refreshAttendPanel(session) {
+  const panel = document.getElementById("panel-attend");
+  if (!panel) return;
+  syncAttendCollapseFromPanel(panel, session.id);
+  panel.innerHTML = renderAttend(session);
+  bindAttendPanel(session);
+}
+
+function renderAttendAnalyzeButton(label) {
+  return `<button type="button" class="btn btn-primary btn-compact attend-analyze-btn" id="btn-run-remember" title="${escapeHtml(ANALYZE_TAKEAWAYS_TOOLTIP)}">${escapeHtml(label)}</button>`;
+}
+
+function renderAttendWhyHereBody(session) {
+  if (session.attendanceIntent?.trim()) {
+    return `<p class="flow-prose">${escapeHtml(session.attendanceIntent)}</p>`;
+  }
+  return renderFlowEmpty(
+    "What would make this event worth your time? Set your intent when you add the event, or note what you hope to learn before you go."
+  );
+}
+
+function renderAttendAboutBody(session) {
+  const enrichment = session.eventEnrichment;
+  const preview = buildEventPreviewFallback(session);
+
+  if (!session.eventUrl && !enrichment) {
+    return `
+      ${renderFlowEmpty("Add an event page link to pull the description, speakers, and topics automatically.")}
+      <button type="button" class="btn btn-text btn-compact" id="btn-add-link-attend">Add event page link →</button>`;
+  }
+
+  const aboutText = preview?.about || preview?.summary;
+  const speakers = enrichment?.speakers ?? preview?.speakers ?? [];
+  const hosts = speakers.filter((s) => s.role === "host");
+  const sessionSpeakers = speakers.filter((s) => s.role === "speaker" || (s.role !== "host" && s.topic));
+  const topics = enrichment?.topics ?? preview?.topics ?? [];
+  const parts = [];
+
+  if (preview?.title) {
+    parts.push(`<p class="attend-event-title">${escapeHtml(preview.title)}</p>`);
+  }
+  if (preview?.location) {
+    parts.push(`<p class="attend-event-meta">${escapeHtml(preview.location)}</p>`);
+  }
+  if (aboutText) {
+    parts.push(renderDescriptionParagraphs(aboutText, "flow-prose attend-event-about-copy"));
+  } else {
+    parts.push(
+      renderFlowEmpty(
+        preview?.enrichmentHint ||
+          "Event link saved — we're still reading this page. Check back shortly or open the event page below."
+      )
+    );
+  }
+  if (preview?.attendeeCount) {
+    parts.push(
+      `<p class="attend-event-meta">${preview.attendeeCount} people registered on the event page.</p>`
+    );
+  }
+  parts.push(renderAttendSpeakerList(hosts, hosts.length === 1 ? "Host" : "Hosts"));
+  parts.push(renderAttendSpeakerList(sessionSpeakers, "Speakers"));
+  if (topics.length) {
+    parts.push(`
+      <div class="attend-event-detail">
+        <p class="attend-event-detail-label">Topics</p>
+        <ul class="attend-event-topic-list">${topics.map((t) => `<li>${escapeHtml(t)}</li>`).join("")}</ul>
+      </div>`);
+  }
+  if (preview?.eventUrl) {
+    parts.push(
+      `<a href="${escapeHtml(preview.eventUrl)}" target="_blank" rel="noopener" class="btn btn-text btn-compact attend-event-link">Open event page →</a>`
+    );
+  }
+  if (preview?.enrichmentHint && aboutText) {
+    parts.push(`<p class="attend-event-hint">${escapeHtml(preview.enrichmentHint)}</p>`);
+  }
+
+  return parts.join("");
+}
+
+function renderAttendNotesBody(session, captures) {
+  return `
+    <div class="attend-notes-subsection">
+      <p class="section-kicker attend-subsection-kicker">Your notes</p>
+      <textarea class="flow-notes" id="attend-notes" rows="10" placeholder="Who you met, what stood out, half-formed ideas…">${escapeHtml(session.rawNotes ?? "")}</textarea>
+      <div class="attend-notes-media">
+        <button type="button" class="btn btn-secondary btn-compact" id="btn-attend-upload">+ Add photos, audio, or video</button>
+        <input type="file" id="attend-file-input" accept="image/*,audio/*,video/*" multiple hidden />
+        <div class="capture-grid flow-capture-grid" id="attend-captures">
+          ${captures.length ? captures.map((c) => renderCaptureCard(session.id, c)).join("") : '<p class="flow-empty" id="attend-captures-empty">No media yet…</p>'}
+        </div>
+        <p class="flow-upload-status" id="attend-upload-status" aria-live="polite"></p>
+      </div>
+    </div>
+    <div class="flow-inline-actions flow-inline-actions-end attend-save-row">
+      <span class="workflow-status" id="attend-save-status" aria-live="polite"></span>
+      <button type="button" class="btn btn-secondary btn-compact" id="btn-save-attend-notes">Save notes</button>
+    </div>`;
+}
+
+function renderAttendClaimRow(claim, key) {
+  const text = resolveClaimText(claim);
+  const isNonObvious = text.includes("[non-obvious]");
+  const editText = formatClaimText(text);
+  return `
+    <li class="flow-bullet-item flow-bullet-editable${isNonObvious ? " is-highlight" : ""}" data-claim-row data-claim-id="${escapeHtml(claim.id ?? "")}" data-non-obvious="${isNonObvious ? "true" : "false"}">
+      ${isNonObvious ? '<span class="flow-tag">Non-obvious</span> ' : ""}<textarea class="flow-bullet-input" data-field="text" rows="1" placeholder="Key takeaway…">${escapeHtml(editText)}</textarea>
+    </li>`;
+}
+
+function renderAttendTakeawaysBody(session, claims, rawClaims, hasExtracted, analyzeLabel, missingClaimText) {
+  if (!hasExtracted) {
+    return `
+      <div class="attend-takeaways-empty">
+        <p class="attend-takeaways-lead">Add notes above, then pull out what mattered from this event.</p>
+        <div class="flow-inline-actions attend-analyze-row attend-analyze-row-center">
+          ${renderAttendAnalyzeButton(analyzeLabel)}
+          <span class="workflow-status" id="remember-status" aria-live="polite"></span>
+        </div>
+        <p class="attend-analyze-hint">${escapeHtml(ANALYZE_TAKEAWAYS_TOOLTIP)}</p>
+      </div>`;
+  }
+
+  const displayClaims = claims.length ? claims : rawClaims.map((c) => ({ ...c, text: resolveClaimText(c) }));
+
+  return `
+    <div class="flow-editable-list" data-editable-list="claims">
+      ${
+        displayClaims.length
+          ? `<ul class="flow-bullet-list flow-takeaway-list">${displayClaims.map((c, i) => renderAttendClaimRow(c, i)).join("")}</ul>`
+          : `<p class="flow-empty flow-editable-empty">No takeaway text yet${missingClaimText ? ` — ${missingClaimText} came back empty…` : "…"}</p>`
+      }
+      ${renderFlowAddRowButton("claim", "Add takeaway")}
+      <div class="flow-inline-actions flow-inline-actions-end attend-save-row">
+        <span class="workflow-status" id="attend-takeaways-status" aria-live="polite"></span>
+        <button type="button" class="btn btn-secondary btn-compact" id="btn-save-takeaways">Save takeaways</button>
+      </div>
+    </div>
+    <div class="flow-inline-actions flow-inline-actions-end attend-analyze-row">
+      ${renderAttendAnalyzeButton(analyzeLabel)}
+      <span class="workflow-status" id="remember-status" aria-live="polite"></span>
+    </div>`;
+}
+
+function renderAttendSpeakerList(speakers, label) {
+  if (!speakers.length) return "";
+  return `
+    <div class="attend-event-detail">
+      <p class="attend-event-detail-label">${escapeHtml(label)}</p>
+      <ul class="attend-event-speaker-list">
+        ${speakers
+          .map((s) => {
+            const meta = [s.title, s.company].filter(Boolean).join(" · ");
+            return `<li class="attend-event-speaker">
+              <strong>${escapeHtml(s.name)}</strong>
+              ${meta ? `<span>${escapeHtml(meta)}</span>` : ""}
+              ${s.topic ? `<p>${escapeHtml(s.topic)}</p>` : ""}
+            </li>`;
+          })
+          .join("")}
+      </ul>
+    </div>`;
+}
+
 function renderAttend(session) {
   const people = session.people ?? [];
   const rawClaims = session.claims ?? [];
@@ -2249,89 +2678,50 @@ function renderAttend(session) {
     .filter((c) => c.text);
   const hasExtracted =
     people.length > 0 || rawClaims.length > 0 || session.stage !== "ingested";
-  const rememberLabel = hasExtracted ? "Re-run Remember" : "Run Remember";
+  const analyzeLabel = hasExtracted
+    ? "Check if I missed something important?"
+    : "Analyze key takeaways";
   const missingClaimText = rawClaims.length - claims.length;
   const captures = session.captures ?? [];
 
-  const contextBlock =
-    session.attendanceIntent || session.eventEnrichment?.description
-      ? `
-    <section class="attend-context card-nested">
-      ${
-        session.attendanceIntent
-          ? `<div class="attend-intent">
-              <p class="section-kicker">Why you're here</p>
-              <p>${escapeHtml(session.attendanceIntent)}</p>
-            </div>`
-          : ""
+  const preview = buildEventPreviewFallback(session);
+  const aboutPreviewText = preview?.about || preview?.summary || "";
+
+  const sections = [
+    renderAttendCollapseSection(session.id, "intent", "Why you're here", renderAttendWhyHereBody(session), {
+      preview: session.attendanceIntent
+        ? attendCollapsePreview(session.attendanceIntent)
+        : "What would make this event worth your time?",
+    }),
+    renderAttendCollapseSection(session.id, "about", "About the event", renderAttendAboutBody(session), {
+      preview: aboutPreviewText
+        ? attendCollapsePreview(aboutPreviewText)
+        : session.eventUrl
+          ? "Event page linked — open to see details"
+          : "Add an event page link for context",
+    }),
+    renderAttendCollapseSection(
+      session.id,
+      "notes",
+      "Your event notes",
+      renderAttendNotesBody(session, captures),
+      { preview: attendNotesPreview(session.rawNotes ?? ""), editable: true }
+    ),
+    renderAttendCollapseSection(
+      session.id,
+      "takeaways",
+      "Key takeaways",
+      renderAttendTakeawaysBody(session, claims, rawClaims, hasExtracted, analyzeLabel, missingClaimText),
+      {
+        preview: hasExtracted
+          ? attendTakeawaysPreview(claims.length ? claims : rawClaims)
+          : "Add notes, then analyze what mattered",
+        editable: hasExtracted,
       }
-      ${
-        session.eventEnrichment?.description
-          ? `<div class="attend-event-about">
-              <p class="section-kicker">About this event</p>
-              ${renderDescriptionParagraphs(session.eventEnrichment.description, "attend-event-about-copy")}
-            </div>`
-          : ""
-      }
-    </section>`
-      : "";
+    ),
+  ];
 
-  return `
-    ${contextBlock}
-    <section class="attend-capture">
-      <h3>Your capture</h3>
-      <p class="field-hint">Dump rough notes, learnings, photos, voice memos, or video from the event. Everything stays on your machine.</p>
-
-      <label class="field attend-notes-field">
-        <span>Notes & learnings</span>
-        <textarea id="attend-notes" rows="10" placeholder="Who you met, what stood out, half-formed ideas…">${escapeHtml(session.rawNotes ?? "")}</textarea>
-      </label>
-      <div class="attend-actions-primary">
-        <button type="button" class="btn btn-primary" id="btn-save-attend-notes">Save notes</button>
-        <span class="attend-save-status" id="attend-save-status" aria-live="polite"></span>
-      </div>
-
-      <div class="attend-media-section">
-        <h4>Photos, audio &amp; video</h4>
-        <p class="field-hint">Optional — images, voice memos, and short clips up to 15MB each.</p>
-        <button type="button" class="btn btn-secondary" id="btn-attend-upload">+ Add photos or recordings</button>
-        <input type="file" id="attend-file-input" accept="image/*,audio/*,video/*" multiple hidden />
-        <div class="capture-grid" id="attend-captures">
-          ${captures.length ? captures.map((c) => renderCaptureCard(session.id, c)).join("") : '<p class="empty" id="attend-captures-empty">No media yet.</p>'}
-        </div>
-        <p class="field-hint" id="attend-upload-status" aria-live="polite"></p>
-      </div>
-    </section>
-
-    ${hasExtracted ? `
-    <details class="attend-extracted" open>
-      <summary>Extracted memory (${people.length} people, ${claims.length} key takeaways)</summary>
-      <div class="grid-2" style="margin-top:14px">
-        <div>
-          <h3>People</h3>
-          ${people.length ? people.map((p) => `<div class="entity"><strong>${escapeHtml(p.name)}</strong><span class="muted"> · ${escapeHtml(p.role)}</span></div>`).join("") : '<p class="empty">No people extracted yet.</p>'}
-        </div>
-        <div>
-          <h3>Key takeaways</h3>
-          ${
-            claims.length
-              ? claims
-                  .slice(0, 6)
-                  .map(
-                    (c) =>
-                      `<div class="claim${c.text.includes("[non-obvious]") ? " non-obvious" : ""}"><div>${escapeHtml(formatClaimText(c.text))}</div></div>`
-                  )
-                  .join("")
-              : `<p class="empty">No takeaway text yet.${missingClaimText ? ` ${missingClaimText} takeaway${missingClaimText === 1 ? "" : "s"} came back without text — add notes and re-run Remember.` : ""}</p>`
-          }
-        </div>
-      </div>
-    </details>` : ""}
-    <div class="workflow-actions">
-      <button type="button" class="btn btn-primary" id="btn-run-remember">${rememberLabel}</button>
-      <span class="workflow-status" id="remember-status" aria-live="polite"></span>
-      <p class="field-hint">${hasExtracted ? "Re-extract people, key takeaways, and themes from your notes." : "Extract people, key takeaways, and themes from your notes."}</p>
-    </div>`;
+  return renderFlowSheet("", renderStepSections(session.id, "attend", sections));
 }
 
 function captureUrl(sessionId, captureId) {
@@ -2364,6 +2754,12 @@ function bindAttendPanel(session) {
   const panel = document.getElementById("panel-attend");
   if (!panel) return;
 
+  bindStepCollapseHandlers(panel, session.id, "attend");
+
+  panel.querySelector("#btn-add-link-attend")?.addEventListener("click", () =>
+    openLinkModal(session.id, session.title)
+  );
+
   const notesEl = panel.querySelector("#attend-notes");
   const statusEl = panel.querySelector("#attend-save-status");
   const rememberStatusEl = panel.querySelector("#remember-status");
@@ -2373,6 +2769,7 @@ function bindAttendPanel(session) {
   if (session.isSample) {
     notesEl?.setAttribute("readonly", "readonly");
     panel.querySelector("#btn-save-attend-notes")?.setAttribute("disabled", "true");
+    panel.querySelector("#btn-save-takeaways")?.setAttribute("disabled", "true");
     panel.querySelector("#btn-attend-upload")?.setAttribute("disabled", "true");
     panel.querySelector("#btn-run-remember")?.setAttribute("disabled", "true");
     return;
@@ -2383,8 +2780,7 @@ function bindAttendPanel(session) {
       await saveNotes();
     }
     await runSessionWorkflow(session.id, "extract", rememberStatusEl, () => {
-      document.getElementById("panel-attend").innerHTML = renderAttend(currentSession);
-      bindAttendPanel(currentSession);
+      refreshAttendPanel(currentSession);
     });
   });
 
@@ -2410,6 +2806,68 @@ function bindAttendPanel(session) {
   panel.querySelector("#btn-save-attend-notes")?.addEventListener("click", saveNotes);
   notesEl?.addEventListener("blur", () => {
     if (notesEl.value !== (currentSession?.rawNotes ?? "")) saveNotes();
+  });
+
+  async function saveTakeaways() {
+    const takeawaysStatus = panel.querySelector("#attend-takeaways-status");
+    const claims = [...panel.querySelectorAll("[data-claim-row]")]
+      .map((block, i) => {
+        const existingId = block.dataset.claimId;
+        const existing = (session.claims ?? []).find((c) => c.id === existingId);
+        let text = block.querySelector('[data-field="text"]')?.value?.trim() ?? "";
+        if (block.dataset.nonObvious === "true" && text && !text.includes("[non-obvious]")) {
+          text = `[non-obvious] ${text}`;
+        }
+        return {
+          ...(existing ?? { id: existingId || `claim-${i + 1}`, sources: [], confidence: "medium" }),
+          text,
+        };
+      })
+      .filter((c) => c.text);
+
+    if (takeawaysStatus) takeawaysStatus.textContent = "Saving…";
+    try {
+      const data = await fetchJson(`/api/sessions/${session.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ claims }),
+      });
+      currentSession = data.session;
+      if (takeawaysStatus) {
+        takeawaysStatus.textContent = "Saved";
+        setTimeout(() => {
+          if (takeawaysStatus.textContent === "Saved") takeawaysStatus.textContent = "";
+        }, 2000);
+      }
+    } catch (err) {
+      if (takeawaysStatus) takeawaysStatus.textContent = err.message ?? "Save failed";
+    }
+  }
+
+  panel.querySelector("#btn-save-takeaways")?.addEventListener("click", saveTakeaways);
+
+  panel.querySelectorAll("[data-add-row]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (btn.dataset.addRow !== "claim") return;
+      const list = btn.closest("[data-editable-list]");
+      const listEl = list?.querySelector(".flow-bullet-list");
+      if (!listEl) {
+        const empty = list?.querySelector(".flow-editable-empty");
+        if (empty) {
+          empty.insertAdjacentHTML(
+            "afterend",
+            `<ul class="flow-bullet-list flow-takeaway-list">${renderAttendClaimRow({ id: `claim-new-${Date.now()}`, text: "", sources: [], confidence: "medium" }, Date.now())}</ul>`
+          );
+          empty.remove();
+        }
+      } else {
+        listEl.insertAdjacentHTML(
+          "beforeend",
+          renderAttendClaimRow({ id: `claim-new-${Date.now()}`, text: "", sources: [], confidence: "medium" }, Date.now())
+        );
+      }
+      list?.querySelector(".flow-bullet-input:last-of-type")?.focus();
+    });
   });
 
   panel.querySelector("#btn-attend-upload")?.addEventListener("click", () => fileInput?.click());
@@ -2457,12 +2915,14 @@ function bindAttendPanel(session) {
     }
 
     if (uploaded > 0) {
-      document.getElementById("panel-attend").innerHTML = renderAttend(currentSession);
-      bindAttendPanel(currentSession);
-      uploadStatusEl.textContent =
-        uploaded === files.length
-          ? `Added ${uploaded} file${uploaded > 1 ? "s" : ""}.`
-          : `Added ${uploaded} of ${files.length} files.`;
+      refreshAttendPanel(currentSession);
+      const statusAfterUpload = document.getElementById("panel-attend")?.querySelector("#attend-upload-status");
+      if (statusAfterUpload) {
+        statusAfterUpload.textContent =
+          uploaded === files.length
+            ? `Added ${uploaded} file${uploaded > 1 ? "s" : ""}.`
+            : `Added ${uploaded} of ${files.length} files.`;
+      }
     }
   });
 
@@ -2475,10 +2935,10 @@ function bindAttendPanel(session) {
           method: "DELETE",
         });
         currentSession = data.session;
-        document.getElementById("panel-attend").innerHTML = renderAttend(currentSession);
-        bindAttendPanel(currentSession);
+        refreshAttendPanel(currentSession);
       } catch (err) {
-        uploadStatusEl.textContent = err.message ?? "Remove failed";
+        const uploadStatus = document.getElementById("panel-attend")?.querySelector("#attend-upload-status");
+        if (uploadStatus) uploadStatus.textContent = err.message ?? "Remove failed";
       }
     });
   });
@@ -2531,6 +2991,8 @@ function bindThinkPanel(session) {
   const panel = document.getElementById("panel-think");
   if (!panel) return;
 
+  bindStepCollapseHandlers(panel, session.id, "think");
+
   if (session.isSample) {
     panel.querySelector("#btn-run-think")?.setAttribute("disabled", "true");
     panel.querySelector("#btn-save-think")?.setAttribute("disabled", "true");
@@ -2549,37 +3011,37 @@ function bindThinkPanel(session) {
     const statusEl = panel.querySelector("#think-save-status");
     const matteredLine = panel.querySelector("#think-mattered-line")?.value ?? "";
 
-    const assumptionChallenges = (session.assumptionChallenges ?? []).map((challenge, i) => {
-      const block = panel.querySelector(`[data-challenge-idx="${i}"]`);
-      if (!block) return challenge;
+    const assumptionChallenges = [...panel.querySelectorAll("[data-challenge-row]")].map((block) => ({
+      question: block.querySelector('[data-field="question"]')?.value ?? "",
+      intent: block.querySelector('[data-field="intent"]')?.value ?? "",
+      relatedClaimIds: [],
+    }));
+
+    const themes = [...panel.querySelectorAll("[data-theme-row]")].map((block, i) => {
+      const existingId = block.dataset.themeId;
+      const existing = (session.themes ?? []).find((t) => t.id === existingId);
       return {
-        ...challenge,
-        question: block.querySelector('[data-field="question"]')?.value ?? challenge.question,
-        intent: block.querySelector('[data-field="intent"]')?.value ?? challenge.intent,
+        ...(existing ?? { id: existingId || `theme-${i + 1}`, claimIds: [] }),
+        label: block.querySelector('[data-field="label"]')?.value ?? "",
+        profileConnection: block.querySelector('[data-field="profileConnection"]')?.value ?? "",
       };
     });
 
-    const themes = (session.themes ?? []).map((theme, i) => {
-      const block = panel.querySelector(`[data-theme-idx="${i}"]`);
-      if (!block) return theme;
+    const contentAngles = [...panel.querySelectorAll("[data-angle-row]")].map((block, i) => {
+      const existingId = block.dataset.angleId;
+      const existing = (session.contentAngles ?? []).find((a) => a.id === existingId);
       return {
-        ...theme,
-        label: block.querySelector('[data-field="label"]')?.value ?? theme.label,
-        profileConnection:
-          block.querySelector('[data-field="profileConnection"]')?.value ??
-          theme.profileConnection ??
-          "",
-      };
-    });
-
-    const contentAngles = (session.contentAngles ?? []).map((angle, i) => {
-      const block = panel.querySelector(`[data-angle-idx="${i}"]`);
-      if (!block) return angle;
-      return {
-        ...angle,
-        title: block.querySelector('[data-field="title"]')?.value ?? angle.title,
-        nonObviousInsight:
-          block.querySelector('[data-field="nonObviousInsight"]')?.value ?? angle.nonObviousInsight,
+        ...(existing ?? {
+          id: existingId || `angle-${i + 1}`,
+          hook: "",
+          rationale: "",
+          expertiseLens: [],
+          platforms: [],
+          predictedAudience: "",
+          claimIds: [],
+        }),
+        title: block.querySelector('[data-field="title"]')?.value ?? "",
+        nonObviousInsight: block.querySelector('[data-field="nonObviousInsight"]')?.value ?? "",
       };
     });
 
@@ -2608,176 +3070,537 @@ function bindThinkPanel(session) {
   }
 
   panel.querySelector("#btn-save-think")?.addEventListener("click", saveThinkEdits);
+
+  panel.querySelectorAll("[data-add-row]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const list = btn.closest("[data-editable-list]");
+      const rows = list?.querySelector(".flow-rows");
+      if (!rows) return;
+      list.querySelector(".flow-editable-empty")?.remove();
+
+      const rowType = btn.dataset.addRow;
+      if (rowType === "challenge") {
+        rows.insertAdjacentHTML("beforeend", renderThinkChallengeRow({ question: "", intent: "" }, Date.now()));
+      } else if (rowType === "theme") {
+        rows.insertAdjacentHTML(
+          "beforeend",
+          renderThinkThemeRow({ id: `theme-new-${Date.now()}`, label: "", profileConnection: "" }, Date.now())
+        );
+      } else if (rowType === "angle") {
+        rows.insertAdjacentHTML(
+          "beforeend",
+          renderThinkAngleRow(
+            { id: `angle-new-${Date.now()}`, title: "", nonObviousInsight: "", hook: "", rationale: "" },
+            Date.now()
+          )
+        );
+      }
+
+      rows.lastElementChild?.querySelector("input, textarea")?.focus();
+    });
+  });
+}
+
+function renderThinkChallengeRow(c, key) {
+  return `
+    <li class="flow-row" data-challenge-row data-challenge-idx="${key}">
+      <textarea class="flow-row-title" data-field="question" rows="1" placeholder="Question worth sitting with…">${escapeHtml(c.question ?? "")}</textarea>
+      <input class="flow-row-detail" type="text" data-field="intent" value="${escapeHtml(c.intent ?? "")}" placeholder="Why it matters…" />
+    </li>`;
+}
+
+function renderThinkThemeRow(t, key) {
+  return `
+    <li class="flow-row" data-theme-row data-theme-idx="${key}" data-theme-id="${escapeHtml(t.id ?? "")}">
+      <input class="flow-row-title" type="text" data-field="label" value="${escapeHtml(t.label ?? "")}" placeholder="Theme or category…" />
+      <input class="flow-row-detail" type="text" data-field="profileConnection" value="${escapeHtml(t.profileConnection ?? "")}" placeholder="How this connects to your work…" />
+    </li>`;
+}
+
+function renderThinkAngleRow(a, key) {
+  return `
+    <li class="flow-row" data-angle-row data-angle-idx="${key}" data-angle-id="${escapeHtml(a.id ?? "")}">
+      <input class="flow-row-title" type="text" data-field="title" value="${escapeHtml(a.title ?? "")}" placeholder="Interesting angle…" />
+      <textarea class="flow-row-detail" data-field="nonObviousInsight" rows="2" placeholder="The non-obvious insight behind it…">${escapeHtml(a.nonObviousInsight ?? "")}</textarea>
+    </li>`;
+}
+
+function renderThinkQuestionsBody(challenges, session) {
+  if (!canEditThink(session)) {
+    return renderFlowEmpty("Complete key takeaway analysis on Attend first…");
+  }
+  return `
+    <div class="flow-editable-list" data-editable-list="challenges">
+      ${
+        challenges.length
+          ? ""
+          : `<p class="flow-empty flow-editable-empty">Add a question worth sitting with, or run Think to generate suggestions…</p>`
+      }
+      <ul class="flow-rows">${challenges.map((c, i) => renderThinkChallengeRow(c, i)).join("")}</ul>
+      ${renderFlowAddRowButton("challenge", "Add question")}
+    </div>`;
+}
+
+function renderThinkWorkLinksBody(themes, session) {
+  if (!canEditThink(session)) {
+    return renderFlowEmpty("Work connections appear after you run Think…");
+  }
+  return `
+    <div class="flow-editable-list" data-editable-list="themes">
+      ${
+        themes.length
+          ? ""
+          : `<p class="flow-empty flow-editable-empty">Add a theme like Clinical Workflows, or run Think to connect event ideas to your projects…</p>`
+      }
+      <ul class="flow-rows">${themes.map((t, i) => renderThinkThemeRow(t, i)).join("")}</ul>
+      ${renderFlowAddRowButton("theme", "Add theme")}
+    </div>`;
+}
+
+function renderThinkAnglesBody(angles, session) {
+  if (!canEditThink(session)) {
+    return renderFlowEmpty("Interesting angles appear after you run Think…");
+  }
+  return `
+    <div class="flow-editable-list" data-editable-list="angles">
+      ${
+        angles.length
+          ? ""
+          : `<p class="flow-empty flow-editable-empty">Add a post angle or run Think to surface non-obvious takes…</p>`
+      }
+      <ul class="flow-rows">${angles.map((a, i) => renderThinkAngleRow(a, i)).join("")}</ul>
+      ${renderFlowAddRowButton("angle", "Add angle")}
+    </div>`;
+}
+
+function renderThinkActionsBody(session) {
+  const challenges = session.assumptionChallenges ?? [];
+  const themes = session.themes ?? [];
+  const angles = session.contentAngles ?? [];
+  const hasOutput =
+    challenges.length > 0 ||
+    themes.length > 0 ||
+    angles.length > 0 ||
+    !["ingested", "extracted"].includes(session.stage);
+
+  if (session.stage === "ingested") {
+    return `<p class="step-footer-hint">Complete key takeaway analysis on the Attend tab first…</p>`;
+  }
+
+  const parts = [];
+
+  if (session.stage === "extracted" && !hasOutput) {
+    parts.push(
+      renderStepActionRow(
+        `
+        <button type="button" class="btn btn-primary btn-compact" id="btn-run-think">Run Think</button>
+        <span class="workflow-status" id="think-status" aria-live="polite"></span>`,
+        "center"
+      )
+    );
+  }
+
+  if (canEditThink(session)) {
+    parts.push(
+      renderStepActionRow(
+        `
+        <span class="workflow-status" id="think-save-status" aria-live="polite"></span>
+        <button type="button" class="btn btn-secondary btn-compact" id="btn-save-think">Save edits</button>`
+      )
+    );
+  }
+
+  return parts.join("");
 }
 
 function renderThink(session) {
   const challenges = session.assumptionChallenges ?? [];
   const themes = session.themes ?? [];
   const angles = session.contentAngles ?? [];
-  const showRun = session.stage === "ingested" || session.stage === "extracted";
-  const runLabel = session.stage === "extracted" ? "Run Think" : "Run Remember first";
   const matteredValue = session.matteredLine?.trim() || getMatteredLine(session);
+  const thinkEditable = canEditThink(session);
 
+  const sections = [
+    renderStepCollapseSection(
+      session.id,
+      "think",
+      "mattered",
+      "What mattered",
+      `<textarea class="flow-notes flow-notes-inline" id="think-mattered-line" rows="2" placeholder="The single insight you want to carry forward…"${thinkEditable ? "" : " readonly"}>${escapeHtml(matteredValue)}</textarea>`,
+      { editable: thinkEditable }
+    ),
+    renderStepCollapseSection(
+      session.id,
+      "think",
+      "questions",
+      "Questions to sit with",
+      renderThinkQuestionsBody(challenges, session),
+      { editable: thinkEditable }
+    ),
+    renderStepCollapseSection(
+      session.id,
+      "think",
+      "work-links",
+      "Links to your work",
+      renderThinkWorkLinksBody(themes, session),
+      { editable: thinkEditable }
+    ),
+    renderStepCollapseSection(
+      session.id,
+      "think",
+      "angles",
+      "Interesting angles",
+      renderThinkAnglesBody(angles, session),
+      { editable: thinkEditable }
+    ),
+  ];
+
+  const actions = renderThinkActionsBody(session);
+
+  return renderFlowSheet("", `${renderStepSections(session.id, "think", sections)}${actions}`);
+}
+
+function canEditCreate(session) {
+  return session.stage !== "ingested" && session.stage !== "extracted";
+}
+
+const CREATE_PLATFORMS = ["linkedin", "twitter", "newsletter", "blog", "substack", "medium"];
+
+function renderCreateDraftRow(d, key) {
   return `
-    ${showRun ? `
-    <div class="workflow-actions think-actions">
-      <button type="button" class="btn btn-primary" id="btn-run-think" ${session.stage === "ingested" ? "disabled" : ""}>${runLabel}</button>
-      <span class="workflow-status" id="think-status" aria-live="polite"></span>
-      ${session.stage === "ingested" ? '<p class="field-hint">Complete Remember on the Attend tab first.</p>' : ""}
-    </div>` : ""}
-    <section class="think-hero">
-      <label class="field think-field">
-        <span>What mattered for you</span>
-        <textarea id="think-mattered-line" rows="2" placeholder="The single insight you want to carry forward">${escapeHtml(matteredValue)}</textarea>
-      </label>
-    </section>
-    <h3>Think deeper</h3>
-    ${
-      challenges.length
-        ? challenges
-            .map(
-              (c, i) => `
-      <div class="think-edit-block" data-challenge-idx="${i}">
-        <label class="field think-field">
-          <span>Question</span>
-          <textarea data-field="question" rows="2">${escapeHtml(c.question)}</textarea>
-        </label>
-        <label class="field think-field">
-          <span>Why it matters</span>
-          <textarea data-field="intent" rows="2">${escapeHtml(c.intent)}</textarea>
-        </label>
-      </div>`
-            )
-            .join("")
-        : '<p class="empty">Assumption challenges appear after Think runs — or add your own notes above.</p>'
-    }
-    <h3 style="margin-top:20px">Apply to your work</h3>
-    ${
-      themes.length
-        ? themes
-            .map(
-              (t, i) => `
-      <div class="think-edit-block" data-theme-idx="${i}">
-        <label class="field think-field">
-          <span>Theme</span>
-          <input type="text" data-field="label" value="${escapeHtml(t.label)}" />
-        </label>
-        <label class="field think-field">
-          <span>How this connects to your work</span>
-          <textarea data-field="profileConnection" rows="2" placeholder="One sentence on how this relates to your expertise">${escapeHtml(t.profileConnection ?? "")}</textarea>
-        </label>
-      </div>`
-            )
-            .join("")
-        : '<p class="empty">Themes from Remember appear here once extracted.</p>'
-    }
-    <h3 style="margin-top:20px">Angles</h3>
-    ${
-      angles.length
-        ? angles
-            .map(
-              (a, i) => `
-      <div class="think-edit-block" data-angle-idx="${i}">
-        <label class="field think-field">
-          <span>Angle</span>
-          <input type="text" data-field="title" value="${escapeHtml(a.title)}" />
-        </label>
-        <label class="field think-field">
-          <span>Non-obvious insight</span>
-          <textarea data-field="nonObviousInsight" rows="3">${escapeHtml(a.nonObviousInsight)}</textarea>
-        </label>
-      </div>`
-            )
-            .join("")
-        : '<p class="empty">Content angles appear after Think or Create runs.</p>'
-    }
-    <div class="think-save-row">
-      <button type="button" class="btn btn-secondary" id="btn-save-think">Save edits</button>
-      <span class="workflow-status" id="think-save-status" aria-live="polite"></span>
+    <li class="flow-row" data-draft-row data-draft-id="${escapeHtml(d.id ?? "")}" data-angle-id="${escapeHtml(d.angleId ?? "")}">
+      <select class="flow-row-platform" data-field="platform">
+        ${CREATE_PLATFORMS.map(
+          (p) =>
+            `<option value="${p}"${d.platform === p ? " selected" : ""}>${escapeHtml(platformLabel(p))}</option>`
+        ).join("")}
+      </select>
+      <textarea class="flow-row-detail flow-draft-body" data-field="body" rows="6" placeholder="Draft text…">${escapeHtml(d.body ?? "")}</textarea>
+    </li>`;
+}
+
+function renderCreateFollowupRow(f, session, key) {
+  const person = (session.people ?? []).find((p) => p.id === f.personId);
+  return `
+    <li class="flow-row" data-followup-row data-followup-id="${escapeHtml(f.id ?? "")}" data-person-id="${escapeHtml(f.personId ?? "")}">
+      <input class="flow-row-title" type="text" data-field="personName" value="${escapeHtml(person?.name ?? "")}" placeholder="Person's name…" />
+      <textarea class="flow-row-detail" data-field="message" rows="3" placeholder="Follow-up message…">${escapeHtml(f.message ?? "")}</textarea>
+    </li>`;
+}
+
+function renderCreateAnglesBody(session, angles) {
+  if (!canEditCreate(session)) {
+    return renderFlowEmpty("Complete Think before editing content angles…");
+  }
+  return `
+    <div class="flow-editable-list" data-editable-list="create-angles">
+      ${
+        angles.length
+          ? ""
+          : `<p class="flow-empty flow-editable-empty">Add a content angle, or run Create to generate suggestions…</p>`
+      }
+      <ul class="flow-rows">${angles.map((a, i) => renderThinkAngleRow(a, i)).join("")}</ul>
+      ${renderFlowAddRowButton("create-angle", "Add angle")}
     </div>`;
+}
+
+function renderCreateDraftsBody(session, drafts) {
+  if (!canEditCreate(session)) {
+    return renderFlowEmpty("Complete Think before generating drafts…");
+  }
+  return `
+    <div class="flow-editable-list" data-editable-list="create-drafts">
+      ${
+        drafts.length
+          ? ""
+          : `<p class="flow-empty flow-editable-empty">Add a draft, or run Create to generate platform-ready posts…</p>`
+      }
+      <ul class="flow-rows">${drafts.map((d, i) => renderCreateDraftRow(d, i)).join("")}</ul>
+      ${renderFlowAddRowButton("create-draft", "Add draft")}
+    </div>`;
+}
+
+function renderCreateFollowupsBody(session, followUps) {
+  if (!canEditCreate(session)) {
+    return renderFlowEmpty("Follow-up messages are generated with your Create drafts…");
+  }
+  return `
+    <div class="flow-editable-list" data-editable-list="create-followups">
+      ${
+        followUps.length
+          ? ""
+          : `<p class="flow-empty flow-editable-empty">Add a follow-up message, or run Create to draft outreach…</p>`
+      }
+      <ul class="flow-rows">${followUps.map((f, i) => renderCreateFollowupRow(f, session, i)).join("")}</ul>
+      ${renderFlowAddRowButton("create-followup", "Add follow-up")}
+    </div>`;
+}
+
+function renderCreateActionsBody(session, angles, drafts, followUps) {
+  const hasOutput = angles.length > 0 || drafts.length > 0 || followUps.length > 0;
+
+  if (session.stage === "ingested" || session.stage === "extracted") {
+    return `<p class="step-footer-hint">Complete Think on the previous tab first…</p>`;
+  }
+
+  const parts = [];
+
+  if (session.stage === "synthesized" && !hasOutput) {
+    parts.push(
+      renderStepActionRow(
+        `
+        <button type="button" class="btn btn-primary btn-compact" id="btn-run-create">Run Create</button>
+        <span class="workflow-status" id="create-status" aria-live="polite"></span>`,
+        "center"
+      )
+    );
+  }
+
+  if (canEditCreate(session)) {
+    parts.push(
+      renderStepActionRow(
+        `
+        <span class="workflow-status" id="create-save-status" aria-live="polite"></span>
+        <button type="button" class="btn btn-secondary btn-compact" id="btn-save-create">Save edits</button>`
+      )
+    );
+  }
+
+  return parts.join("");
 }
 
 function renderCreate(session) {
   const drafts = session.contentDrafts ?? [];
   const angles = session.contentAngles ?? [];
   const followUps = session.followUpDrafts ?? [];
-  const showRun = session.stage === "synthesized";
+  const createEditable = canEditCreate(session);
 
-  const parts = [];
-  if (showRun) {
-    parts.push(`
-    <div class="workflow-actions">
-      <button type="button" class="btn btn-primary" id="btn-run-create">Run Create</button>
-      <span class="workflow-status" id="create-status" aria-live="polite"></span>
-      <p class="field-hint">Generate content angles, a LinkedIn draft, and follow-up messages.</p>
-    </div>`);
-  } else if (session.stage === "extracted" || session.stage === "ingested") {
-    parts.push('<p class="empty">Complete Think before creating drafts.</p>');
-  }
+  const sections = [
+    renderStepCollapseSection(
+      session.id,
+      "create",
+      "angles",
+      "Content angles",
+      renderCreateAnglesBody(session, angles),
+      { editable: createEditable }
+    ),
+    renderStepCollapseSection(
+      session.id,
+      "create",
+      "drafts",
+      "Drafts",
+      renderCreateDraftsBody(session, drafts),
+      { editable: createEditable }
+    ),
+    renderStepCollapseSection(
+      session.id,
+      "create",
+      "followups",
+      "Follow-up messages",
+      renderCreateFollowupsBody(session, followUps),
+      { editable: createEditable }
+    ),
+  ];
 
-  if (angles.length) {
-    parts.push(`<h3>Content angles</h3>${angles.map((a) => `<div class="entity"><strong>${escapeHtml(a.title)}</strong><p>${escapeHtml(a.nonObviousInsight)}</p></div>`).join("")}`);
-  }
+  const actions = renderCreateActionsBody(session, angles, drafts, followUps);
 
-  if (drafts.length) {
-    parts.push(drafts.map((d) => `<div style="margin-bottom:18px"><h3>${escapeHtml(d.platform)}</h3><div class="draft-box">${escapeHtml(d.body)}</div></div>`).join(""));
-  } else if (!showRun && (session.stage === "drafted" || session.stage === "reviewed")) {
-    parts.push('<p class="empty">No content drafts yet.</p>');
-  }
-
-  if (followUps.length) {
-    parts.push(`<h3 style="margin-top:20px">Follow-ups</h3>${followUps.map((f) => {
-      const person = (session.people ?? []).find((p) => p.id === f.personId);
-      return `<div class="entity"><strong>${escapeHtml(person?.name ?? "Connection")}</strong><p>${escapeHtml(f.message)}</p></div>`;
-    }).join("")}`);
-  }
-
-  return parts.join("") || '<p class="empty">Drafts appear after you run Create.</p>';
+  return renderFlowSheet("", `${renderStepSections(session.id, "create", sections)}${actions}`);
 }
 
 function bindCreatePanel(session) {
   const panel = document.getElementById("panel-create");
-  if (!panel || session.isSample) {
-    panel?.querySelector("#btn-run-create")?.setAttribute("disabled", "true");
+  if (!panel) return;
+
+  bindStepCollapseHandlers(panel, session.id, "create");
+
+  if (session.isSample) {
+    panel.querySelector("#btn-run-create")?.setAttribute("disabled", "true");
+    panel.querySelector("#btn-save-create")?.setAttribute("disabled", "true");
+    panel.querySelectorAll("#panel-create textarea, #panel-create input, #panel-create select").forEach((el) => {
+      el.setAttribute("disabled", "true");
+    });
     return;
   }
+
   panel.querySelector("#btn-run-create")?.addEventListener("click", async () => {
     await runSessionWorkflow(session.id, "draft", panel.querySelector("#create-status"));
   });
+
+  async function saveCreateEdits() {
+    const statusEl = panel.querySelector("#create-save-status");
+
+    const contentAngles = [...panel.querySelectorAll("[data-angle-row]")].map((block, i) => {
+      const existingId = block.dataset.angleId;
+      const existing = (session.contentAngles ?? []).find((a) => a.id === existingId);
+      return {
+        ...(existing ?? {
+          id: existingId || `angle-${i + 1}`,
+          hook: "",
+          rationale: "",
+          expertiseLens: [],
+          platforms: [],
+          predictedAudience: "",
+          claimIds: [],
+        }),
+        title: block.querySelector('[data-field="title"]')?.value ?? "",
+        nonObviousInsight: block.querySelector('[data-field="nonObviousInsight"]')?.value ?? "",
+      };
+    });
+
+    const contentDrafts = [...panel.querySelectorAll("[data-draft-row]")].map((block, i) => {
+      const existingId = block.dataset.draftId;
+      const existing = (session.contentDrafts ?? []).find((d) => d.id === existingId);
+      return {
+        ...(existing ?? {
+          id: existingId || `draft-${i + 1}`,
+          angleId: block.dataset.angleId || "",
+          reasoningTrace: [],
+        }),
+        platform: block.querySelector('[data-field="platform"]')?.value ?? "linkedin",
+        body: block.querySelector('[data-field="body"]')?.value ?? "",
+      };
+    });
+
+    const followUpDrafts = [...panel.querySelectorAll("[data-followup-row]")].map((block, i) => {
+      const existingId = block.dataset.followupId;
+      const existing = (session.followUpDrafts ?? []).find((f) => f.id === existingId);
+      const personName = block.querySelector('[data-field="personName"]')?.value?.trim() ?? "";
+      const matchedPerson = (session.people ?? []).find((p) => p.name === personName);
+      return {
+        ...(existing ?? {
+          id: existingId || `followup-${i + 1}`,
+          contextUsed: [],
+          tone: "warm",
+        }),
+        personId: matchedPerson?.id ?? block.dataset.personId ?? session.people?.[0]?.id ?? "",
+        message: block.querySelector('[data-field="message"]')?.value ?? "",
+      };
+    });
+
+    if (statusEl) statusEl.textContent = "Saving…";
+    try {
+      const data = await fetchJson(`/api/sessions/${session.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contentAngles, contentDrafts, followUpDrafts }),
+      });
+      currentSession = data.session;
+      if (statusEl) {
+        statusEl.textContent = "Saved";
+        setTimeout(() => {
+          if (statusEl.textContent === "Saved") statusEl.textContent = "";
+        }, 2000);
+      }
+    } catch (err) {
+      if (statusEl) statusEl.textContent = err.message ?? "Save failed";
+    }
+  }
+
+  panel.querySelector("#btn-save-create")?.addEventListener("click", saveCreateEdits);
+
+  panel.querySelectorAll("[data-add-row]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const list = btn.closest("[data-editable-list]");
+      const rows = list?.querySelector(".flow-rows");
+      if (!rows) return;
+      list.querySelector(".flow-editable-empty")?.remove();
+
+      const rowType = btn.dataset.addRow;
+      if (rowType === "create-angle") {
+        rows.insertAdjacentHTML(
+          "beforeend",
+          renderThinkAngleRow(
+            { id: `angle-new-${Date.now()}`, title: "", nonObviousInsight: "", hook: "", rationale: "" },
+            Date.now()
+          )
+        );
+      } else if (rowType === "create-draft") {
+        rows.insertAdjacentHTML(
+          "beforeend",
+          renderCreateDraftRow({ id: `draft-new-${Date.now()}`, platform: "linkedin", body: "", angleId: "" }, Date.now())
+        );
+      } else if (rowType === "create-followup") {
+        rows.insertAdjacentHTML(
+          "beforeend",
+          renderCreateFollowupRow({ id: `followup-new-${Date.now()}`, personId: "", message: "" }, session, Date.now())
+        );
+      }
+
+      rows.lastElementChild?.querySelector("input, textarea, select")?.focus();
+    });
+  });
+}
+
+function scoreTone(value) {
+  if (value >= 80) return "good";
+  if (value >= 65) return "ok";
+  return "low";
+}
+
+function renderReviewScoresBody(session) {
+  const e = session.evalScores;
+  const hasDrafts = (session.contentDrafts ?? []).length > 0;
+
+  if (session.stage === "synthesized") {
+    return renderFlowEmpty("Run Create first — then review scores appear here…");
+  }
+  if (session.stage === "drafted" && hasDrafts && !e) {
+    return renderFlowEmpty("Run Review below to score grounding, voice, lens fit, and non-obviousness…");
+  }
+  if (!e) {
+    return renderFlowEmpty("Review scores appear after you run Create and Review…");
+  }
+
+  return `
+    <div class="score-grid score-grid-modern flow-score-grid">
+      ${scoreCell("Grounding", e.grounding, scoreTone(e.grounding))}
+      ${scoreCell("Voice", e.voice, scoreTone(e.voice))}
+      ${scoreCell("Expertise", e.expertiseLens, scoreTone(e.expertiseLens))}
+      ${scoreCell("Non-obvious", e.nonObviousness, scoreTone(e.nonObviousness))}
+    </div>
+    ${e.notes ? `<p class="flow-prose flow-review-note">${escapeHtml(e.notes)}</p>` : ""}`;
+}
+
+function renderReviewActionsBody(session) {
+  const hasDrafts = (session.contentDrafts ?? []).length > 0;
+  const showRun = session.stage === "drafted" && hasDrafts && !session.evalScores;
+
+  if (session.stage === "synthesized") {
+    return `<p class="step-footer-hint">Complete Create on the previous tab first…</p>`;
+  }
+  if (!showRun) return "";
+
+  return renderStepActionRow(
+    `
+    <button type="button" class="btn btn-primary btn-compact" id="btn-run-review">Run Review</button>
+    <span class="workflow-status" id="review-status" aria-live="polite"></span>`,
+    "center"
+  );
 }
 
 function renderReview(session) {
-  const e = session.evalScores;
-  const hasDrafts = (session.contentDrafts ?? []).length > 0;
-  const showRun = session.stage === "drafted" && hasDrafts;
-  const parts = [];
+  const sections = [
+    renderStepCollapseSection(
+      session.id,
+      "review",
+      "scores",
+      "Quality scores",
+      renderReviewScoresBody(session)
+    ),
+  ];
 
-  if (showRun) {
-    parts.push(`
-    <div class="workflow-actions">
-      <button type="button" class="btn btn-primary" id="btn-run-review">Run Review</button>
-      <span class="workflow-status" id="review-status" aria-live="polite"></span>
-      <p class="field-hint">Score drafts on grounding, voice, lens, and non-obviousness.</p>
-    </div>`);
-  } else if (session.stage === "synthesized") {
-    parts.push('<p class="empty">Run Create first — then review scores appear here.</p>');
-  }
+  const actions = renderReviewActionsBody(session);
 
-  if (e) {
-    parts.push(`<div class="score-grid">
-      ${scoreCell("Grounding", e.grounding)}${scoreCell("Voice", e.voice)}
-      ${scoreCell("Expertise", e.expertiseLens)}${scoreCell("Non-obvious", e.nonObviousness)}
-    </div>${e.notes ? `<p class="field-hint" style="margin-top:16px">${escapeHtml(e.notes)}</p>` : ""}`);
-  } else if (!showRun && session.stage !== "synthesized") {
-    parts.push('<p class="empty">Review scores appear after Create.</p>');
-  }
-
-  return parts.join("") || '<p class="empty">Review scores appear after Create.</p>';
+  return renderFlowSheet("", `${renderStepSections(session.id, "review", sections)}${actions}`);
 }
 
 function bindReviewPanel(session) {
   const panel = document.getElementById("panel-review");
-  if (!panel || session.isSample) {
+  if (!panel) return;
+
+  bindStepCollapseHandlers(panel, session.id, "review");
+
+  if (session.isSample) {
     panel?.querySelector("#btn-run-review")?.setAttribute("disabled", "true");
     return;
   }
@@ -2786,73 +3609,70 @@ function bindReviewPanel(session) {
   });
 }
 
-function renderConnect(session) {
+function renderConnectDraftsBody(session) {
   const drafts = session.connectionDrafts ?? [];
-  if (!drafts.length) {
-    if (!session.eventUrl) {
-      return `<p class="empty">Add the event page link first — we'll pull speakers, LinkedIn profiles, and draft connection notes from it.</p>`;
-    }
-    if (!session.eventEnrichment?.speakers?.length) {
-      return `<p class="empty">No speakers found on the event page yet. Re-open the event link to refresh speaker details.</p>`;
-    }
-    return `<p class="empty">No speakers ready to connect with yet. Complete Your Unique Lens for sharper notes.</p>`;
-  }
 
-  const speakers = drafts.filter((draft) => draft.role === "speaker" || draft.source === "pipeline");
-  const hosts = drafts.filter((draft) => draft.role === "host");
-  const others = drafts.filter(
-    (draft) => !speakers.includes(draft) && !hosts.includes(draft)
-  );
-
-  const renderDraftCard = (draft) => `
-    <article class="connect-card entity" data-connect-id="${escapeHtml(draft.id)}">
-      <div class="connect-card-head">
-        <div>
-          <strong>${escapeHtml(draft.name)}</strong>
-          ${
-            draft.title || draft.company
-              ? `<span class="connect-card-meta">${escapeHtml([draft.title, draft.company].filter(Boolean).join(" · "))}</span>`
-              : ""
-          }
-        </div>
+  const renderDraftRow = (draft) => `
+    <li class="flow-row flow-row-connect" data-connect-id="${escapeHtml(draft.id)}">
+      <div class="flow-connect-head">
+        <span class="flow-row-title">${escapeHtml(draft.name)}</span>
         ${
-          draft.linkedInUrl
-            ? `<a href="${escapeHtml(draft.linkedInUrl)}" target="_blank" rel="noopener" class="btn btn-text">LinkedIn profile →</a>`
-            : `<span class="connect-card-meta">LinkedIn not listed on event page</span>`
+          draft.title || draft.company
+            ? `<span class="flow-row-detail">${escapeHtml([draft.title, draft.company].filter(Boolean).join(" · "))}</span>`
+            : ""
         }
       </div>
-      <dl class="connect-context">
-        <div>
-          <dt>Speaking on</dt>
-          <dd>${escapeHtml(draft.deliveryTopic)}</dd>
-        </div>
-        <div>
-          <dt>Your lens</dt>
-          <dd>${escapeHtml(draft.lensAngle)}</dd>
-        </div>
-      </dl>
-      <p class="connect-draft-label">LinkedIn connection note</p>
-      <p class="connect-draft-message">${escapeHtml(draft.message)}</p>
-      <button type="button" class="btn btn-small btn-ghost" data-copy-connect="${escapeHtml(draft.id)}">Copy invitation</button>
-    </article>`;
+      <p class="flow-meta-line"><span class="flow-meta">Speaking on</span> ${escapeHtml(draft.deliveryTopic)}</p>
+      <p class="flow-meta-line"><span class="flow-meta">Your lens</span> ${escapeHtml(draft.lensAngle)}</p>
+      <p class="flow-prose flow-quote">${escapeHtml(draft.message)}</p>
+      <div class="flow-connect-actions">
+        ${
+          draft.linkedInUrl
+            ? `<a href="${escapeHtml(draft.linkedInUrl)}" target="_blank" rel="noopener" class="btn btn-text btn-compact">LinkedIn →</a>`
+            : `<span class="flow-row-detail">No LinkedIn on page</span>`
+        }
+        <button type="button" class="btn btn-secondary btn-compact" data-copy-connect="${escapeHtml(draft.id)}">Copy invitation</button>
+      </div>
+    </li>`;
 
   const renderGroup = (title, items) =>
     !items.length
       ? ""
-      : `<section class="connect-group">
-          <h3 class="connect-group-title">${escapeHtml(title)}</h3>
-          ${items.map(renderDraftCard).join("")}
-        </section>`;
+      : `
+        <p class="flow-sub-label">${escapeHtml(title)}</p>
+        <ul class="flow-rows">${items.map(renderDraftRow).join("")}</ul>`;
+
+  if (!drafts.length) {
+    if (!session.eventUrl) {
+      return renderFlowEmpty("Add the event page — we'll pull speakers and draft connection notes…");
+    }
+    if (!session.eventEnrichment?.speakers?.length) {
+      return renderFlowEmpty("No speakers found — re-open the event link to refresh speaker details…");
+    }
+    return renderFlowEmpty("Complete Your Unique Lens for sharper, personalized connection notes…");
+  }
+
+  const speakers = drafts.filter((draft) => draft.role === "speaker" || draft.source === "pipeline");
+  const hosts = drafts.filter((draft) => draft.role === "host");
+  const others = drafts.filter((draft) => !speakers.includes(draft) && !hosts.includes(draft));
 
   return `
-    <p class="field-hint">Each invitation ties what they're covering at the event to your Unique Lens. Copy the note, then send the request on LinkedIn.</p>
     ${renderGroup("Speakers", speakers.length ? speakers : drafts.filter((d) => d.role !== "host"))}
     ${renderGroup("Hosts", hosts)}
     ${renderGroup("People from your notes", others)}`;
 }
 
+function renderConnect(session) {
+  const body = renderConnectDraftsBody(session);
+  const section = renderStepCollapseSection(session.id, "connect", "drafts", "Connection drafts", body);
+  return renderFlowSheet("", renderStepSections(session.id, "connect", [section]));
+}
+
 function bindConnectPanel(session) {
-  document.querySelectorAll("[data-copy-connect]").forEach((btn) => {
+  const panel = document.getElementById("panel-connect");
+  bindStepCollapseHandlers(panel, session.id, "connect");
+
+  panel?.querySelectorAll("[data-copy-connect]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const draft = (session.connectionDrafts ?? []).find((item) => item.id === btn.dataset.copyConnect);
       if (!draft?.message) return;
@@ -3030,8 +3850,8 @@ function getMatteredLine(session) {
   return "Capture what stood out from this event.";
 }
 
-function scoreCell(label, val) {
-  return `<div class="score"><div class="val">${val}</div><div class="label">${label}</div></div>`;
+function scoreCell(label, val, tone = "") {
+  return `<div class="score score-${tone}"><div class="val">${val}</div><div class="label">${label}</div></div>`;
 }
 
 function escapeHtml(str) {

@@ -14,7 +14,10 @@ export function getDatabaseUrl(): string | undefined {
 }
 
 export function hasDatabase(): boolean {
-  return Boolean(getDatabaseUrl());
+  const url = getDatabaseUrl()?.trim();
+  if (!url) return false;
+  if (/@host(\/|:|$)/i.test(url) || /user:pass@/i.test(url)) return false;
+  return true;
 }
 
 function normalizeDatabaseUrl(raw: string): string {
