@@ -972,6 +972,14 @@ body {
   max-width: 420px;
 }
 
+.dashboard-warning {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--gold) 12%, white);
+  color: var(--ink);
+}
+
 .topbar-tour-btn {
   white-space: nowrap;
 }
@@ -2182,6 +2190,78 @@ h3 { margin: 0 0 8px; font-size: 1rem; }
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 14px;
+}
+
+.connect-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.connect-card-meta {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.connect-draft-label {
+  margin: 0 0 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+}
+
+.connect-draft-message {
+  margin: 0 0 12px;
+  color: var(--ink);
+  line-height: 1.5;
+}
+
+.connect-card + .connect-card {
+  margin-top: 12px;
+}
+
+.connect-group + .connect-group {
+  margin-top: 20px;
+}
+
+.connect-group-title {
+  margin: 0 0 12px;
+  font-size: 0.95rem;
+}
+
+.connect-context {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 12px;
+  border-radius: 10px;
+  background: #f4f6f5;
+}
+
+.connect-context div {
+  margin: 0;
+}
+
+.connect-context dt {
+  margin: 0 0 4px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.connect-context dd {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: var(--ink);
 }
 
 .entity {

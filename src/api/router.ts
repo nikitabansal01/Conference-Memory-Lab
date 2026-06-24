@@ -23,9 +23,6 @@ import { createSession, applyEnrichmentTitle, resolveSessionTitle, titleFromEnri
 import { getProfileStatus } from "../lib/profile-status.js";
 import { buildActionItems, buildAllActionItems, buildSessionActionItems, capabilitiesUnlocked, eventLinkNudge, sessionLoopLabel, sessionNextTab } from "../lib/actions.js";
 import { buildContentHub } from "../lib/content-hub.js";
-import { buildEventPreview } from "../lib/event-preview.js";
-import { enrichEventFromUrl } from "../lib/event-enrichment.js";
-import { buildEventIntentSuggestions } from "../lib/event-intent.js";
 import { buildCapacitySidebarModel } from "../lib/capacity-display.js";
 import { computeLearningStreak } from "../lib/learning-streak.js";
 import {
@@ -105,6 +102,24 @@ function parseRequestBody(body: unknown): Record<string, unknown> {
   }
   if (typeof body === "object") return body as Record<string, unknown>;
   return {};
+}
+
+async function enrichEventFromUrl(eventUrl: string) {
+  const mod = await import("../lib/event-enrichment.js");
+  return mod.enrichEventFromUrl(eventUrl);
+}
+
+async function buildEventPreview(session: EventSession) {
+  const mod = await import("../lib/event-preview.js");
+  return mod.buildEventPreview(session);
+}
+
+async function buildEventIntentSuggestions(
+  enrichment: NonNullable<EventSession["eventEnrichment"]>,
+  profile: ExpertiseProfile
+) {
+  const mod = await import("../lib/event-intent.js");
+  return mod.buildEventIntentSuggestions(enrichment, profile);
 }
 
 async function ensureEventEnrichment(session: EventSession, force = false): Promise<EventSession> {

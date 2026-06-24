@@ -201,8 +201,78 @@ async function fetchJson(url, options) {
 }
 
 async function loadDashboard() {
-  dashboardData = await fetchJson("/api/dashboard");
+  let apiError = null;
+  try {
+    dashboardData = await fetchJson("/api/dashboard");
+  } catch (err) {
+    apiError = err instanceof Error ? err.message : "Could not reach the server";
+    dashboardData = buildFallbackDashboardData();
+  }
   renderHome();
+  if (apiError && !wantsTour()) {
+    showDashboardWarning(apiError);
+  }
+}
+
+function wantsTour() {
+  const tour = new URLSearchParams(window.location.search).get("tour");
+  return tour === "1" || tour === "true";
+}
+
+function buildFallbackDashboardData() {
+  const week = ["M", "T", "W", "T", "F", "S", "S"].map((label) => ({ label, active: false }));
+  return {
+    showOnboarding: true,
+    onboarding: { completed: false, step: 0, loopSubStep: 0, explicit: false },
+    hasUserEvents: false,
+    profile: {
+      name: "You",
+      tagline: "",
+      expertiseAreas: [],
+      contentPriorities: [],
+      status: {
+        complete: false,
+        score: 0,
+        lensSummary: "Complete your unique lens so insights connect to your work, not generic advice.",
+      },
+    },
+    progress: {
+      level: 0,
+      levelName: "Observer",
+      levelTagline: "Capture & summarize events",
+      totalXp: 0,
+      next: { progressPct: 0 },
+    },
+    sessions: [],
+    actions: [],
+    allActions: [],
+    featuredSession: {
+      id: "sample-sf-llm-eval-mixer",
+      title: "SF LLM Eval Mixer",
+      eventType: "mixer",
+      stage: "drafted",
+      createdAt: new Date().toISOString(),
+      isSample: true,
+      people: [{ id: "p1" }, { id: "p2" }, { id: "p3" }],
+      stats: {
+        peopleCount: 3,
+        ideasCount: 2,
+        biggestIdea: "Evaluating the agentic workflow matters as much as model accuracy",
+      },
+    },
+    learningStreak: { activeDays: 0, week },
+    lensImpact: [],
+    contentHub: { ideas: [], drafts: [] },
+  };
+}
+
+function showDashboardWarning(message) {
+  const hero = document.getElementById("hero");
+  if (!hero || hero.querySelector(".dashboard-warning")) return;
+  const note = document.createElement("p");
+  note.className = "dashboard-warning field-hint";
+  note.textContent = `Live sync unavailable (${message}). You can still take the app tour and explore the sample event.`;
+  hero.querySelector(".hero-copy")?.appendChild(note);
 }
 
 function renderHome() {
@@ -1306,16 +1376,24 @@ function renderBottomBanner() {
 }
 
 async function saveWalkthroughState(patch) {
-  const data = await fetchJson("/api/onboarding", {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(patch),
-  });
-  if (dashboardData) {
-    dashboardData.onboarding = data.onboarding;
-    dashboardData.showOnboarding = data.showOnboarding;
+  try {
+    const data = await fetchJson("/api/onboarding", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    if (dashboardData) {
+      dashboardData.onboarding = data.onboarding;
+      dashboardData.showOnboarding = data.showOnboarding;
+    }
+    return data;
+  } catch {
+    if (dashboardData) {
+      dashboardData.onboarding = { ...dashboardData.onboarding, ...patch };
+      dashboardData.showOnboarding = !(patch.completed || patch.skipped);
+    }
+    return { onboarding: dashboardData?.onboarding, showOnboarding: dashboardData?.showOnboarding };
   }
-  return data;
 }
 
 function clearWalkthroughHighlight() {
@@ -1576,39 +1654,35 @@ async function handleWalkthroughSecondary() {
 }
 
 function maybeStartWalkthrough(d, force = false) {
-  const urlTour = new URLSearchParams(window.location.search).get("tour");
-  const forceTour = force || urlTour === "1" || urlTour === "true";
+  const forceTour = force || wantsTour();
   if (!forceTour && !d.showOnboarding) return;
-  walkthroughStep = forceTour && !d.showOnboarding ? 0 : (d.onboarding?.step ?? 0);
-  walkthroughLoopSub = d.onboarding?.loopSubStep ?? 0;
+  walkthroughStep = forceTour ? 0 : (d.onboarding?.step ?? 0);
+  walkthroughLoopSub = forceTour ? 0 : (d.onboarding?.loopSubStep ?? 0);
+  if (walkthroughStep >= WALKTHROUGH_STEPS.length && !forceTour) return;
   if (walkthroughStep >= WALKTHROUGH_STEPS.length) {
-    if (forceTour) {
-      walkthroughStep = 0;
-      walkthroughLoopSub = 0;
-    } else {
-      return;
-    }
+    walkthroughStep = 0;
+    walkthroughLoopSub = 0;
   }
   showMainView("home");
   showWalkthroughOverlay();
-}
-
-async function replayWalkthrough() {
-  await saveWalkthroughState({ completed: false, skipped: false, explicit: false, step: 0, loopSubStep: 0 });
-  walkthroughStep = 0;
-  walkthroughLoopSub = 0;
-  if (!dashboardData) {
-    await ensureDashboardData();
-  }
-  dashboardData.showOnboarding = true;
-  dashboardData.onboarding = { completed: false, step: 0, loopSubStep: 0, explicit: false };
-  showMainView("home");
-  showWalkthroughOverlay();
-  if (window.location.search.includes("tour=")) {
+  if (forceTour) {
     const url = new URL(window.location.href);
     url.searchParams.delete("tour");
     window.history.replaceState({}, "", url.pathname + url.search);
   }
+}
+
+async function replayWalkthrough() {
+  walkthroughStep = 0;
+  walkthroughLoopSub = 0;
+  await saveWalkthroughState({ completed: false, skipped: false, explicit: false, step: 0, loopSubStep: 0 });
+  if (!dashboardData) {
+    dashboardData = buildFallbackDashboardData();
+  }
+  dashboardData.showOnboarding = true;
+  dashboardData.onboarding = { completed: false, step: 0, loopSubStep: 0, explicit: false };
+  renderHome();
+  showWalkthroughOverlay();
 }
 
 window.replayWalkthrough = replayWalkthrough;
@@ -1758,6 +1832,7 @@ function renderSessionView() {
   bindAttendPanel(session);
   document.getElementById("panel-think").innerHTML = renderThink(session);
   document.getElementById("panel-connect").innerHTML = renderConnect(session);
+  bindConnectPanel(session);
   document.getElementById("panel-create").innerHTML = renderCreate(session);
   document.getElementById("panel-review").innerHTML = renderReview(session);
   setActiveTab(activeTab);
@@ -2051,11 +2126,86 @@ function renderCreate(session) {
 }
 
 function renderConnect(session) {
-  const drafts = session.followUpDrafts ?? [];
-  const people = Object.fromEntries((session.people ?? []).map((p) => [p.id, p.name]));
-  if (!drafts.length) return '<p class="empty">Follow-up drafts appear after Think — send before you publish.</p>';
-  return `<p class="field-hint">Most people connect right after the event, before posting — so you can tag them.</p>` +
-    drafts.map((f) => `<div class="entity"><strong>${escapeHtml(people[f.personId] ?? "Contact")}</strong><p>${escapeHtml(f.message)}</p></div>`).join("");
+  const drafts = session.connectionDrafts ?? [];
+  if (!drafts.length) {
+    if (!session.eventUrl) {
+      return `<p class="empty">Add the event page link first — we'll pull speakers, LinkedIn profiles, and draft connection notes from it.</p>`;
+    }
+    if (!session.eventEnrichment?.speakers?.length) {
+      return `<p class="empty">No speakers found on the event page yet. Re-open the event link to refresh speaker details.</p>`;
+    }
+    return `<p class="empty">No speakers ready to connect with yet. Complete Your Unique Lens for sharper notes.</p>`;
+  }
+
+  const speakers = drafts.filter((draft) => draft.role === "speaker" || draft.source === "pipeline");
+  const hosts = drafts.filter((draft) => draft.role === "host");
+  const others = drafts.filter(
+    (draft) => !speakers.includes(draft) && !hosts.includes(draft)
+  );
+
+  const renderDraftCard = (draft) => `
+    <article class="connect-card entity" data-connect-id="${escapeHtml(draft.id)}">
+      <div class="connect-card-head">
+        <div>
+          <strong>${escapeHtml(draft.name)}</strong>
+          ${
+            draft.title || draft.company
+              ? `<span class="connect-card-meta">${escapeHtml([draft.title, draft.company].filter(Boolean).join(" · "))}</span>`
+              : ""
+          }
+        </div>
+        ${
+          draft.linkedInUrl
+            ? `<a href="${escapeHtml(draft.linkedInUrl)}" target="_blank" rel="noopener" class="btn btn-text">LinkedIn profile →</a>`
+            : `<span class="connect-card-meta">LinkedIn not listed on event page</span>`
+        }
+      </div>
+      <dl class="connect-context">
+        <div>
+          <dt>Speaking on</dt>
+          <dd>${escapeHtml(draft.deliveryTopic)}</dd>
+        </div>
+        <div>
+          <dt>Your lens</dt>
+          <dd>${escapeHtml(draft.lensAngle)}</dd>
+        </div>
+      </dl>
+      <p class="connect-draft-label">LinkedIn connection note</p>
+      <p class="connect-draft-message">${escapeHtml(draft.message)}</p>
+      <button type="button" class="btn btn-small btn-ghost" data-copy-connect="${escapeHtml(draft.id)}">Copy invitation</button>
+    </article>`;
+
+  const renderGroup = (title, items) =>
+    !items.length
+      ? ""
+      : `<section class="connect-group">
+          <h3 class="connect-group-title">${escapeHtml(title)}</h3>
+          ${items.map(renderDraftCard).join("")}
+        </section>`;
+
+  return `
+    <p class="field-hint">Each invitation ties what they're covering at the event to your Unique Lens. Copy the note, then send the request on LinkedIn.</p>
+    ${renderGroup("Speakers", speakers.length ? speakers : drafts.filter((d) => d.role !== "host"))}
+    ${renderGroup("Hosts", hosts)}
+    ${renderGroup("People from your notes", others)}`;
+}
+
+function bindConnectPanel(session) {
+  document.querySelectorAll("[data-copy-connect]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const draft = (session.connectionDrafts ?? []).find((item) => item.id === btn.dataset.copyConnect);
+      if (!draft?.message) return;
+      try {
+        await navigator.clipboard.writeText(draft.message);
+        btn.textContent = "Copied";
+        setTimeout(() => {
+          btn.textContent = "Copy invitation";
+        }, 1600);
+      } catch {
+        btn.textContent = "Copy failed";
+      }
+    });
+  });
 }
 
 function renderReview(session) {
@@ -2533,4 +2683,12 @@ function showLoadError(message) {
   document.body.innerHTML = `<pre style="padding:24px">Failed: ${escapeHtml(message)}</pre>`;
 }
 
-loadDashboard().catch((err) => showLoadError(err.message));
+loadDashboard().catch((err) => {
+  dashboardData = buildFallbackDashboardData();
+  renderHome();
+  if (wantsTour()) {
+    maybeStartWalkthrough(dashboardData, true);
+  } else {
+    showLoadError(err.message);
+  }
+});

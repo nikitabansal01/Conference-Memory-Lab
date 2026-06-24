@@ -17,9 +17,18 @@ export function hasDatabase(): boolean {
   return Boolean(getDatabaseUrl());
 }
 
+function normalizeDatabaseUrl(raw: string): string {
+  const trimmed = raw.trim();
+  if (trimmed.startsWith("postgres://")) {
+    return trimmed.replace("postgres://", "postgresql://");
+  }
+  return trimmed;
+}
+
 function getSql(): NeonQueryFunction<false, false> {
-  const url = getDatabaseUrl();
-  if (!url) throw new Error("DATABASE_URL is not configured");
+  const raw = getDatabaseUrl();
+  if (!raw) throw new Error("DATABASE_URL is not configured");
+  const url = normalizeDatabaseUrl(raw);
   if (!sql) sql = neon(url);
   return sql;
 }

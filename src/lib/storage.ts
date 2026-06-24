@@ -35,9 +35,14 @@ async function ensureDataDirs(): Promise<void> {
 
 export async function loadProgress(): Promise<UserProgress> {
   if (hasDatabase()) {
-    const data = await dbLoadState("progress");
-    if (data) return data as UserProgress;
-    return emptyProgress();
+    try {
+      const data = await dbLoadState("progress");
+      if (data) return data as UserProgress;
+      return emptyProgress();
+    } catch (err) {
+      console.error("loadProgress: database unavailable, using defaults", err);
+      return emptyProgress();
+    }
   }
 
   await ensureDataDirs();
@@ -51,8 +56,13 @@ export async function loadProgress(): Promise<UserProgress> {
 
 export async function saveProgress(progress: UserProgress): Promise<void> {
   if (hasDatabase()) {
-    await dbSaveState("progress", progress);
-    return;
+    try {
+      await dbSaveState("progress", progress);
+      return;
+    } catch (err) {
+      console.error("saveProgress: database unavailable", err);
+      return;
+    }
   }
 
   await ensureDataDirs();
@@ -86,8 +96,13 @@ export async function loadSession(id: string): Promise<EventSession | null> {
 
 export async function listSessions(): Promise<EventSession[]> {
   if (hasDatabase()) {
-    const rows = await dbListSessions();
-    return rows as EventSession[];
+    try {
+      const rows = await dbListSessions();
+      return rows as EventSession[];
+    } catch (err) {
+      console.error("listSessions: database unavailable, using empty list", err);
+      return [];
+    }
   }
 
   await ensureDataDirs();
@@ -120,11 +135,28 @@ export async function loadProfile(): Promise<ExpertiseProfile | null> {
   }
 }
 
+const FALLBACK_PROFILE: ExpertiseProfile = {
+  name: "You",
+  tagline: "",
+  expertiseAreas: [],
+  industries: [],
+  voiceTraits: [],
+  avoidPatterns: [],
+  pastPostExamples: [],
+  contentPriorities: [],
+  assumptionPatterns: [],
+};
+
 export async function loadProfileOrExample(): Promise<ExpertiseProfile> {
-  const profile = await loadProfile();
-  if (profile) return profile;
-  const raw = await readFile(PROFILE_EXAMPLE, "utf-8");
-  return JSON.parse(raw) as ExpertiseProfile;
+  try {
+    const profile = await loadProfile();
+    if (profile) return profile;
+    const raw = await readFile(PROFILE_EXAMPLE, "utf-8");
+    return JSON.parse(raw) as ExpertiseProfile;
+  } catch (err) {
+    console.error("loadProfileOrExample: using fallback profile", err);
+    return FALLBACK_PROFILE;
+  }
 }
 
 export async function saveProfile(profile: ExpertiseProfile): Promise<void> {
