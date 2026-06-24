@@ -117,11 +117,11 @@ const WALKTHROUGH_STEPS = [
     primary: { label: "Next step", action: "loop-next" },
   },
   {
-    title: "Connect platforms when you're ready",
+    title: "Connect Apps when you're ready",
     body:
-      "LinkedIn, Luma & calendar, and X appear here — even when locked. Integrations unlock after you review drafts so publishing matches your voice.",
+      "LinkedIn, Luma & calendar, and X appear here — even when locked. Apps unlock after you review drafts so publishing matches your voice.",
     target: '.sidebar-foot [data-nav="connections"]',
-    primary: { label: "See connections", action: "connections" },
+    primary: { label: "See Connect Apps", action: "connections" },
     secondary: { label: "Finish tour", action: "finish" },
   },
 ];
@@ -142,12 +142,12 @@ const WALKTHROUGH_COMPANION = {
     modalId: "modal-event-outcome",
     title: "Confirm your intent",
     body:
-      "Pick a suggestion or write why this event is worth your time, then save intent to continue the tour.",
+      "Pick a suggestion or write why this event is worth your time. Save intent to continue — next up is your five-step event loop.",
   },
   connections: {
     modalId: "modal-connections",
-    title: "Connections preview",
-    body: "These unlock as you review drafts. Close when you've seen the layout — the tour continues.",
+    title: "Connect Apps preview",
+    body: "These apps unlock as you review drafts. Close when you've seen the layout — the tour continues.",
   },
 };
 
@@ -156,6 +156,7 @@ let walkthroughLoopSub = 0;
 let walkthroughActive = false;
 let walkthroughPaused = false;
 let walkthroughCompanionMode = null;
+let walkthroughTransitioning = false;
 let walkthroughTargetEl = null;
 let clerkInstance = null;
 let appConfig = null;
@@ -613,6 +614,9 @@ function renderHome() {
   setSidebarNavActive("home");
   closeMobileMenu();
   maybeStartWalkthrough(d);
+  if (walkthroughActive) {
+    syncWalkthroughVisibility();
+  }
 }
 
 function showMainView(view) {
@@ -1866,6 +1870,35 @@ function exitWalkthroughCompanion() {
   walkthroughPaused = false;
 }
 
+function isWalkthroughModalOpen(id) {
+  return Boolean(document.getElementById(id)?.open);
+}
+
+function syncWalkthroughVisibility() {
+  if (!walkthroughActive || walkthroughTransitioning) return;
+
+  if (walkthroughStep === 0 && isWalkthroughModalOpen("modal-lens")) {
+    enterWalkthroughCompanion("lens");
+    return;
+  }
+  if (walkthroughStep === 2) {
+    if (isWalkthroughModalOpen("modal-event-outcome")) {
+      enterWalkthroughCompanion("outcome");
+      return;
+    }
+    if (isWalkthroughModalOpen("modal-event")) {
+      enterWalkthroughCompanion("event");
+      return;
+    }
+  }
+  if (walkthroughStep === 4 && isWalkthroughModalOpen("modal-connections")) {
+    enterWalkthroughCompanion("connections");
+    return;
+  }
+
+  showWalkthroughOverlay();
+}
+
 function resumeWalkthroughAfterModal() {
   if (!walkthroughActive) return;
   exitWalkthroughCompanion();
@@ -2088,7 +2121,7 @@ function openConnectionsModal(options = {}) {
   const hintEl = document.getElementById("connections-modal-hint");
   if (options.walkthroughPreview) {
     hintEl.textContent =
-      "You'll connect these after reviewing drafts — integrations stay locked until the system learns your voice.";
+      "You'll connect these apps after reviewing drafts — they stay locked until the system learns your voice.";
     document.getElementById("modal-connections")?.classList.add("is-walkthrough-preview");
   } else {
     hintEl.textContent =
@@ -2999,9 +3032,6 @@ document.getElementById("form-event").addEventListener("submit", async (e) => {
     errEl.classList.remove("hidden");
     return;
   }
-  if (walkthroughActive && walkthroughStep === 2) {
-    exitWalkthroughCompanion();
-  }
   document.getElementById("modal-event").close();
   form.reset();
   document.getElementById("event-title-preview")?.classList.add("hidden");
@@ -3072,10 +3102,12 @@ document.getElementById("form-lens").addEventListener("submit", async (e) => {
     return;
   }
   if (walkthroughActive && walkthroughStep === 0) {
+    walkthroughTransitioning = true;
     exitWalkthroughCompanion();
     document.getElementById("modal-lens").close();
     await loadDashboard();
     await advanceWalkthroughStep(1, 0);
+    walkthroughTransitioning = false;
     return;
   }
   document.getElementById("modal-lens").close();
@@ -3099,10 +3131,12 @@ document.getElementById("btn-outcome-continue").addEventListener("click", async 
     });
   }
   if (walkthroughActive && walkthroughStep === 2) {
+    walkthroughTransitioning = true;
     exitWalkthroughCompanion();
     document.getElementById("modal-event-outcome").close();
     await loadDashboard();
     await advanceWalkthroughStep(3, 0);
+    walkthroughTransitioning = false;
     return;
   }
   document.getElementById("modal-event-outcome").close();
@@ -3134,22 +3168,26 @@ window.addEventListener("resize", repositionWalkthroughHighlight);
 window.addEventListener("scroll", repositionWalkthroughHighlight, true);
 
 document.getElementById("modal-lens")?.addEventListener("close", () => {
-  if (walkthroughActive && walkthroughCompanionMode === "lens") {
+  if (walkthroughTransitioning) return;
+  if (walkthroughActive && walkthroughStep === 0 && walkthroughCompanionMode === "lens") {
     resumeWalkthroughAfterModal();
   }
 });
 document.getElementById("modal-event")?.addEventListener("close", () => {
-  if (walkthroughActive && walkthroughCompanionMode === "event") {
+  if (walkthroughTransitioning) return;
+  if (walkthroughActive && walkthroughStep === 2 && walkthroughCompanionMode === "event") {
     resumeWalkthroughAfterModal();
   }
 });
 document.getElementById("modal-event-outcome")?.addEventListener("close", () => {
-  if (walkthroughActive && walkthroughCompanionMode === "outcome") {
+  if (walkthroughTransitioning) return;
+  if (walkthroughActive && walkthroughStep === 2 && walkthroughCompanionMode === "outcome") {
     resumeWalkthroughAfterModal();
   }
 });
 document.getElementById("modal-connections")?.addEventListener("close", () => {
-  if (walkthroughActive && walkthroughCompanionMode === "connections") {
+  if (walkthroughTransitioning) return;
+  if (walkthroughActive && walkthroughStep === 4 && walkthroughCompanionMode === "connections") {
     resumeWalkthroughAfterModal();
   }
 });

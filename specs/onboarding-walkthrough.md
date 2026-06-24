@@ -8,7 +8,7 @@ First-run guided tour for new users. Implemented in the home shell (`public/app.
 2. **Six capacity levels** — Spotlight the sidebar capacity arc; list L1–L6 (Observer → Trusted Delegate), starting at Level 1.
 3. **Add an event** — Nudge to paste a Luma or conference link for a recent or upcoming event. Opens the add-event flow.
 4. **Five-step loop** — Walk Attend → Think → Connect → Create → Review one sub-step at a time with an inline loop preview.
-5. **Connections preview** — Open Connections with LinkedIn, Luma/calendar, and X shown even when locked, with trust framing.
+5. **Connect Apps preview** — Open Connect Apps with LinkedIn, Luma/calendar, and X shown even when locked, with trust framing.
 
 ## Behavior
 
