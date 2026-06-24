@@ -237,12 +237,12 @@ function mountClerkAuthForms() {
   if (!el || !clerkInstance) return;
 
   const baseUrl = `${window.location.origin}${window.location.pathname}${window.location.search}`;
-  const authOptions = {
+  const hashOptions = {
     routing: "hash",
+    signInUrl: "/sign-in",
+    signUpUrl: "/sign-up",
     afterSignInUrl: baseUrl,
     afterSignUpUrl: baseUrl,
-    signInUrl: `${baseUrl}#/sign-in`,
-    signUpUrl: `${baseUrl}#/sign-up`,
   };
 
   const renderAuthView = () => {
@@ -250,9 +250,9 @@ function mountClerkAuthForms() {
     const isSignUp = hash === "/sign-up" || hash === "sign-up";
     el.innerHTML = "";
     if (isSignUp) {
-      clerkInstance.mountSignUp(el, authOptions);
+      clerkInstance.mountSignUp(el, hashOptions);
     } else {
-      clerkInstance.mountSignIn(el, authOptions);
+      clerkInstance.mountSignIn(el, hashOptions);
     }
   };
 
