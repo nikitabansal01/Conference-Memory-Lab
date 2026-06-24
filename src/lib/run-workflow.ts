@@ -2,6 +2,7 @@ import type { EventSession, SessionStage, TrustLevel } from "../models/types.js"
 import { buildWorkflowPrompt, type WorkflowName } from "./prompts.js";
 import { callLlm, isLlmConfigured, parseJsonFromLlm } from "./llm.js";
 import { normalizeClaims } from "./claims.js";
+import { finalizeDraftWorkflowOutput } from "./content-drafts.js";
 import { mergeSessionUpdate, applyStageCompletion } from "./complete.js";
 import { canPerformAction, getLevelDefinition } from "../trust/levels.js";
 import { loadProgress, saveProgress, saveSession, loadProfileOrExample } from "./storage.js";
@@ -61,6 +62,7 @@ function asArray<T>(value: unknown): T[] {
 
 function normalizeWorkflowUpdate(
   workflow: RunnableWorkflow,
+  session: EventSession,
   update: Partial<EventSession>
 ): Partial<EventSession> {
   if (workflow === "extract") {
@@ -89,12 +91,7 @@ function normalizeWorkflowUpdate(
   }
 
   if (workflow === "draft") {
-    return {
-      ...update,
-      contentAngles: asArray(update.contentAngles),
-      contentDrafts: asArray(update.contentDrafts),
-      followUpDrafts: asArray(update.followUpDrafts),
-    };
+    return finalizeDraftWorkflowOutput(session, update);
   }
 
   return update;
@@ -138,11 +135,13 @@ export async function runSessionWorkflow(
     throw new Error("Add notes before running Remember.");
   }
 
+  if (workflow === "draft" && !(session.themes ?? []).some((t) => t.label?.trim())) {
+    throw new Error("Run Think first — save at least one theme before generating LinkedIn drafts.");
+  }
+
   if (workflow === "self-critique" && !session.contentDrafts?.length) {
     throw new Error("Run Create first — no drafts to review yet.");
   }
-
-  assertMinStage(session, workflow);
 
   const progress = await loadProgress(userId);
   const userLevel = progress.level as TrustLevel;
@@ -175,7 +174,7 @@ export async function runSessionWorkflow(
   const raw = await callLlm(bundle.systemPrompt, userPrompt);
   const parsed = parseJsonFromLlm(raw);
   const critiqueMerged = workflow === "self-critique" ? mergeCritiqueExtras(session, parsed) : parsed;
-  const update = normalizeWorkflowUpdate(workflow, critiqueMerged as Partial<EventSession>);
+  const update = normalizeWorkflowUpdate(workflow, session, critiqueMerged as Partial<EventSession>);
   const { stage: _ignored, ...updateWithoutStage } = update;
 
   const merged = mergeSessionUpdate(session, updateWithoutStage);

@@ -3893,8 +3893,31 @@ textarea.flow-row-detail::placeholder {
   border: none;
 }
 
-.flow-connect-head {
-  margin-bottom: 6px;
+.create-linkedin-lead {
+  margin: 0 0 14px;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.create-linkedin-lead-warn {
+  color: color-mix(in srgb, var(--gold) 70%, var(--ink));
+}
+
+.flow-linkedin-draft {
+  padding: 12px 0;
+}
+
+.flow-linkedin-draft .flow-row-kicker {
+  margin: 0 0 8px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--accent);
+}
+
+.flow-linkedin-drafts .flow-draft-body {
+  min-height: 160px;
 }
 
 .flow-connect-actions {

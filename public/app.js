@@ -46,7 +46,7 @@ const STEP_META = {
   attend: { step: 1, title: "Attend", subtitle: "Capture notes and media while the event is fresh" },
   think: { step: 2, title: "Think", subtitle: "Connect takeaways to your unique lens" },
   connect: { step: 3, title: "Connect", subtitle: "Reach out with context, not generic invites" },
-  create: { step: 4, title: "Create", subtitle: "Draft posts anchored to your voice" },
+  create: { step: 4, title: "Create", subtitle: "Turn Think themes into LinkedIn post drafts" },
   review: { step: 5, title: "Review", subtitle: "Score grounding and approve before sharing" },
 };
 
@@ -83,7 +83,7 @@ const LOOP_WALKTHROUGH = [
   },
   {
     title: "Create — draft & share",
-    body: "Turn insights into LinkedIn posts, threads, or newsletters anchored to your voice.",
+    body: "Turn your Think themes into copy-paste-ready LinkedIn post drafts grounded in what mattered.",
   },
   {
     title: "Review — approve before shipping",
@@ -2960,7 +2960,7 @@ function fileToBase64(file) {
 const WORKFLOW_UI = {
   extract: { btn: "btn-run-remember", running: "Extracting…" },
   synthesize: { btn: "btn-run-think", running: "Thinking…" },
-  draft: { btn: "btn-run-create", running: "Drafting…" },
+  draft: { btn: "btn-run-create", running: "Generating LinkedIn drafts…" },
   "self-critique": { btn: "btn-run-review", running: "Reviewing…" },
 };
 
@@ -3264,19 +3264,59 @@ function canEditCreate(session) {
   return session.stage !== "ingested" && session.stage !== "extracted";
 }
 
-const CREATE_PLATFORMS = ["linkedin", "twitter", "newsletter", "blog", "substack", "medium"];
+function getCreateThemes(session) {
+  return (session.themes ?? []).filter((t) => t.label?.trim());
+}
 
-function renderCreateDraftRow(d, key) {
+function getLinkedInDrafts(session) {
+  return (session.contentDrafts ?? []).filter((d) => (d.platform ?? "linkedin") === "linkedin");
+}
+
+function resolveDraftSourceLabel(draft, session) {
+  const angle = (session.contentAngles ?? []).find((a) => a.id === draft.angleId);
+  if (angle?.title?.trim()) return angle.title.trim();
+  const theme = (session.themes ?? []).find((t) => t.id === draft.angleId);
+  if (theme?.label?.trim()) return theme.label.trim();
+  const themeByLabel = getCreateThemes(session)[0];
+  return themeByLabel?.label?.trim() || "Theme";
+}
+
+function needsLinkedInDrafts(session) {
+  const themes = getCreateThemes(session);
+  const linkedIn = getLinkedInDrafts(session).filter((d) => String(d.body ?? "").trim());
+  return themes.length > 0 && linkedIn.length === 0;
+}
+
+function renderCreateLinkedInDraftRow(d, session, key) {
+  const source = resolveDraftSourceLabel(d, session);
   return `
-    <li class="flow-row" data-draft-row data-draft-id="${escapeHtml(d.id ?? "")}" data-angle-id="${escapeHtml(d.angleId ?? "")}">
-      <select class="flow-row-platform" data-field="platform">
-        ${CREATE_PLATFORMS.map(
-          (p) =>
-            `<option value="${p}"${d.platform === p ? " selected" : ""}>${escapeHtml(platformLabel(p))}</option>`
-        ).join("")}
-      </select>
-      <textarea class="flow-row-detail flow-draft-body" data-field="body" rows="6" placeholder="Draft text…">${escapeHtml(d.body ?? "")}</textarea>
+    <li class="flow-row flow-linkedin-draft" data-draft-row data-draft-id="${escapeHtml(d.id ?? "")}" data-angle-id="${escapeHtml(d.angleId ?? "")}" data-platform="linkedin">
+      <p class="flow-row-kicker">Based on: ${escapeHtml(source)}</p>
+      <textarea class="flow-row-detail flow-draft-body" data-field="body" rows="8" placeholder="LinkedIn post draft…">${escapeHtml(d.body ?? "")}</textarea>
     </li>`;
+}
+
+function renderCreateLinkedInDraftsBody(session) {
+  if (!canEditCreate(session)) {
+    return renderFlowEmpty("Complete Think before generating LinkedIn drafts…");
+  }
+
+  const themes = getCreateThemes(session);
+  const linkedInDrafts = getLinkedInDrafts(session).filter((d) => String(d.body ?? "").trim());
+  const themeLead = themes.length
+    ? `<p class="create-linkedin-lead">Drafts are built from your ${themes.length} Think theme${themes.length === 1 ? "" : "s"} — edit before sharing.</p>`
+    : `<p class="create-linkedin-lead create-linkedin-lead-warn">Add themes in Think first — LinkedIn drafts are generated from those themes.</p>`;
+
+  return `
+    ${themeLead}
+    <div class="flow-editable-list" data-editable-list="create-drafts">
+      ${
+        linkedInDrafts.length
+          ? `<ul class="flow-rows flow-linkedin-drafts">${linkedInDrafts.map((d, i) => renderCreateLinkedInDraftRow(d, session, i)).join("")}</ul>`
+          : `<p class="flow-empty flow-editable-empty">Run Generate LinkedIn drafts below to turn your themes into copy-paste-ready posts…</p>`
+      }
+      ${renderFlowAddRowButton("create-draft", "Add LinkedIn draft")}
+    </div>`;
 }
 
 function renderCreateFollowupRow(f, session, key) {
@@ -3305,19 +3345,7 @@ function renderCreateAnglesBody(session, angles) {
 }
 
 function renderCreateDraftsBody(session, drafts) {
-  if (!canEditCreate(session)) {
-    return renderFlowEmpty("Complete Think before generating drafts…");
-  }
-  return `
-    <div class="flow-editable-list" data-editable-list="create-drafts">
-      ${
-        drafts.length
-          ? ""
-          : `<p class="flow-empty flow-editable-empty">Add a draft, or run Create to generate platform-ready posts…</p>`
-      }
-      <ul class="flow-rows">${drafts.map((d, i) => renderCreateDraftRow(d, i)).join("")}</ul>
-      ${renderFlowAddRowButton("create-draft", "Add draft")}
-    </div>`;
+  return renderCreateLinkedInDraftsBody(session);
 }
 
 function renderCreateFollowupsBody(session, followUps) {
@@ -3337,19 +3365,25 @@ function renderCreateFollowupsBody(session, followUps) {
 }
 
 function renderCreateActionsBody(session, angles, drafts, followUps) {
-  const hasOutput = angles.length > 0 || drafts.length > 0 || followUps.length > 0;
-
   if (session.stage === "ingested" || session.stage === "extracted") {
     return `<p class="step-footer-hint">Complete Think on the previous tab first…</p>`;
   }
 
+  const themes = getCreateThemes(session);
+  const linkedInDrafts = getLinkedInDrafts(session).filter((d) => String(d.body ?? "").trim());
   const parts = [];
 
-  if (session.stage === "synthesized" && !hasOutput) {
+  if (!themes.length) {
+    parts.push(
+      `<p class="step-footer-hint">Run Think and save themes — Create turns those into LinkedIn post drafts.</p>`
+    );
+  } else if (!linkedInDrafts.length) {
+    const hasPartialOutput = angles.length > 0 || followUps.length > 0;
+    const label = hasPartialOutput ? "Regenerate LinkedIn drafts" : "Generate LinkedIn drafts";
     parts.push(
       renderStepActionRow(
         `
-        <button type="button" class="btn btn-primary btn-compact" id="btn-run-create">Run Create</button>
+        <button type="button" class="btn btn-primary btn-compact" id="btn-run-create">${label}</button>
         <span class="workflow-status" id="create-status" aria-live="polite"></span>`,
         "center"
       )
@@ -3371,9 +3405,11 @@ function renderCreateActionsBody(session, angles, drafts, followUps) {
 
 function renderCreate(session) {
   const drafts = session.contentDrafts ?? [];
+  const linkedInDrafts = getLinkedInDrafts(session).filter((d) => String(d.body ?? "").trim());
   const angles = session.contentAngles ?? [];
   const followUps = session.followUpDrafts ?? [];
   const createEditable = canEditCreate(session);
+  const themeCount = getCreateThemes(session).length;
 
   const sections = [
     renderStepCollapseSection(
@@ -3387,10 +3423,22 @@ function renderCreate(session) {
     renderStepCollapseSection(
       session.id,
       "create",
-      "drafts",
-      "Drafts",
-      renderCreateDraftsBody(session, drafts),
-      { editable: createEditable }
+      "linkedin",
+      "LinkedIn post drafts",
+      renderCreateLinkedInDraftsBody(session),
+      {
+        editable: createEditable,
+        preview: linkedInDrafts.length
+          ? attendCollapsePreview(
+              linkedInDrafts
+                .map((d) => resolveDraftSourceLabel(d, session))
+                .slice(0, 2)
+                .join(" · ")
+            )
+          : themeCount
+            ? `${themeCount} theme${themeCount === 1 ? "" : "s"} ready — generate drafts`
+            : "Add Think themes first",
+      }
     ),
     renderStepCollapseSection(
       session.id,
@@ -3456,7 +3504,7 @@ function bindCreatePanel(session) {
           angleId: block.dataset.angleId || "",
           reasoningTrace: [],
         }),
-        platform: block.querySelector('[data-field="platform"]')?.value ?? "linkedin",
+        platform: block.dataset.platform || "linkedin",
         body: block.querySelector('[data-field="body"]')?.value ?? "",
       };
     });
@@ -3501,11 +3549,38 @@ function bindCreatePanel(session) {
   panel.querySelectorAll("[data-add-row]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const list = btn.closest("[data-editable-list]");
+      const rowType = btn.dataset.addRow;
+
+      if (rowType === "create-draft") {
+        let rows = list?.querySelector(".flow-rows");
+        list?.querySelector(".flow-editable-empty")?.remove();
+        if (!rows) {
+          list?.insertAdjacentHTML(
+            "beforeend",
+            `<ul class="flow-rows flow-linkedin-drafts">${renderCreateLinkedInDraftRow(
+              { id: `draft-new-${Date.now()}`, platform: "linkedin", body: "", angleId: "" },
+              session,
+              Date.now()
+            )}</ul>`
+          );
+        } else {
+          rows.insertAdjacentHTML(
+            "beforeend",
+            renderCreateLinkedInDraftRow(
+              { id: `draft-new-${Date.now()}`, platform: "linkedin", body: "", angleId: "" },
+              session,
+              Date.now()
+            )
+          );
+        }
+        list?.querySelector(".flow-linkedin-drafts .flow-draft-body:last-of-type")?.focus();
+        return;
+      }
+
       const rows = list?.querySelector(".flow-rows");
       if (!rows) return;
       list.querySelector(".flow-editable-empty")?.remove();
 
-      const rowType = btn.dataset.addRow;
       if (rowType === "create-angle") {
         rows.insertAdjacentHTML(
           "beforeend",
@@ -3513,11 +3588,6 @@ function bindCreatePanel(session) {
             { id: `angle-new-${Date.now()}`, title: "", nonObviousInsight: "", hook: "", rationale: "" },
             Date.now()
           )
-        );
-      } else if (rowType === "create-draft") {
-        rows.insertAdjacentHTML(
-          "beforeend",
-          renderCreateDraftRow({ id: `draft-new-${Date.now()}`, platform: "linkedin", body: "", angleId: "" }, Date.now())
         );
       } else if (rowType === "create-followup") {
         rows.insertAdjacentHTML(
