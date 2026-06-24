@@ -1,6 +1,7 @@
 import type { EventSession, ExpertiseProfile } from "../models/types.js";
 import { resolveSessionTitle } from "./session.js";
 import { buildConnectionDrafts } from "./connection-drafts.js";
+import { safePlatformLabel } from "./content-hub.js";
 import type { ProfileStatus } from "./profile-status.js";
 import { parseEventUrl } from "./event-url.js";
 
@@ -199,14 +200,13 @@ export function buildSessionActionItems(
 
   for (const draft of session.contentDrafts) {
     if (session.stage !== "drafted" && session.stage !== "reviewed") continue;
-    const platformLabel =
-      draft.platform.charAt(0).toUpperCase() + draft.platform.slice(1);
+    const platformLabelText = safePlatformLabel(draft.platform);
     items.push(
       withSessionMeta(
         {
           id: `draft-${draft.id}`,
           type: "create",
-          label: `Finish your ${platformLabel} draft`,
+          label: `Finish your ${platformLabelText} draft`,
           description:
             session.contentAngles.find((a) => a.id === draft.angleId)?.title ??
             "Review and refine your post",

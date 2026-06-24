@@ -59,6 +59,11 @@ export function platformLabel(platform: ContentPlatform): string {
   return PLATFORM_LABELS[platform] ?? platform;
 }
 
+export function safePlatformLabel(platform?: ContentPlatform | string | null): string {
+  if (!platform || typeof platform !== "string") return "Content";
+  return PLATFORM_LABELS[platform as ContentPlatform] ?? platform.charAt(0).toUpperCase() + platform.slice(1);
+}
+
 function formatSessionDate(iso: string): string {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
@@ -138,7 +143,7 @@ export function buildContentHub(sessions: EventSession[]): ContentHubData {
     for (const p of item.platforms) {
       byPlatform.push({
         platform: p.platform,
-        platformLabel: platformLabel(p.platform),
+        platformLabel: safePlatformLabel(p.platform),
         angleId: item.angleId,
         angleTitle: item.title,
         sessionId: item.sessionId,

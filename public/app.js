@@ -793,6 +793,7 @@ const PLATFORM_LABEL = {
 };
 
 function platformLabel(platform) {
+  if (!platform || typeof platform !== "string") return "Content";
   return PLATFORM_LABEL[platform] ?? platform.charAt(0).toUpperCase() + platform.slice(1);
 }
 
@@ -1019,7 +1020,8 @@ function buildHeroLead(d) {
   }
 
   const { activeStep } = loopStepSummary(session);
-  return `<p class="hero-lead">Your memory loop picks up below at ${escapeHtml(activeStep.label)} — ${escapeHtml(activeStep.verb.charAt(0).toLowerCase() + activeStep.verb.slice(1))}.</p>`;
+  const verb = activeStep?.verb ?? "continue";
+  return `<p class="hero-lead">Your memory loop picks up below at ${escapeHtml(activeStep?.label ?? "Create")} — ${escapeHtml(verb.charAt(0).toLowerCase() + verb.slice(1))}.</p>`;
 }
 
 function renderHero(d) {
@@ -1091,11 +1093,13 @@ function loopStepState(index, tab, loopIdx, selectedTab) {
 }
 
 function loopStepSummary(session, selectedTab = null) {
-  const loopIdx = loopIndexForSession(session);
+  const loopIdx = Math.min(loopIndexForSession(session), LOOP.length - 1);
   const activeIndex =
     selectedTab != null ? LOOP.findIndex((s) => s.tab === selectedTab) : loopIdx;
-  const activeStep = LOOP[activeIndex >= 0 ? activeIndex : loopIdx] ?? LOOP[0];
-  return { activeIndex: activeIndex >= 0 ? activeIndex : loopIdx, activeStep };
+  const resolvedIndex =
+    activeIndex >= 0 ? Math.min(activeIndex, LOOP.length - 1) : loopIdx;
+  const activeStep = LOOP[resolvedIndex] ?? LOOP[0];
+  return { activeIndex: resolvedIndex, activeStep };
 }
 
 function renderLoopStepButtons(session, selectedTab = null) {
