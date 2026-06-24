@@ -9,6 +9,7 @@ import {
   loadProfileOrExample,
   saveProfile,
   loadResume,
+  loadExampleSession,
   ROOT,
 } from "../lib/storage.js";
 import {
@@ -261,6 +262,24 @@ export async function routeApi(
         clerkPublishableKey: getClerkPublishableKey(),
         authRequired: isAuthConfigured() || Boolean(process.env.VERCEL),
         clerkSetup: getClerkSetupStatus(),
+      },
+    };
+  }
+
+  if (pathname === "/api/preview/session" && method === "GET") {
+    const session = await loadExampleSession();
+    if (!session) {
+      return { status: 404, body: { error: "Sample session not found" } };
+    }
+    const profile = await loadProfileOrExample("preview");
+    return {
+      status: 200,
+      body: {
+        ...session,
+        isSample: true,
+        eventLinkNudge: eventLinkNudge(session),
+        eventLinkInfo: session.eventUrl ? parseEventUrl(session.eventUrl) : null,
+        connectionDrafts: buildConnectionDrafts(session, profile),
       },
     };
   }
