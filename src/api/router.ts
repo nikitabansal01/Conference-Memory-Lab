@@ -28,6 +28,11 @@ import { enrichEventFromUrl } from "../lib/event-enrichment.js";
 import { buildEventIntentSuggestions } from "../lib/event-intent.js";
 import { buildCapacitySidebarModel } from "../lib/capacity-display.js";
 import { computeLearningStreak } from "../lib/learning-streak.js";
+import {
+  mergeOnboardingState,
+  normalizeOnboarding,
+  shouldShowOnboarding,
+} from "../lib/onboarding.js";
 import { parseEventUrl, isValidEventUrl } from "../lib/event-url.js";
 import {
   saveCaptureFile,
@@ -121,8 +126,15 @@ async function ensureEventEnrichment(session: EventSession, force = false): Prom
 }
 
 async function handleDashboard(): Promise<ApiResult> {
-  const progress = await loadProgress();
+  const storedProgress = await loadProgress();
   const sessions = await listSessions();
+  const hadOnboarding = Boolean(storedProgress.onboarding);
+  const normalized = normalizeOnboarding(storedProgress, sessions.length);
+  let progress = normalized.progress;
+  if (!hadOnboarding && normalized.onboarding.completed) {
+    await saveProgress(progress);
+  }
+  const onboarding = normalized.onboarding;
   const profile = await loadProfileOrExample();
   const resume = await loadResume();
   const levelDef = getLevelDefinition(progress.level);
@@ -210,6 +222,8 @@ async function handleDashboard(): Promise<ApiResult> {
           }
         : null,
       primaryAction: actions[0] ?? null,
+      onboarding,
+      showOnboarding: shouldShowOnboarding(onboarding),
     },
   };
 }
@@ -221,6 +235,28 @@ export async function routeApi(
 ): Promise<ApiResult> {
   if (pathname === "/api/dashboard" && method === "GET") {
     return handleDashboard();
+  }
+
+  if (pathname === "/api/onboarding" && method === "PATCH") {
+    const body = parseRequestBody(rawBody) as Partial<{
+      step: number;
+      loopSubStep: number;
+      completed: boolean;
+      skipped: boolean;
+    }>;
+
+    const progress = await loadProgress();
+    const onboarding = mergeOnboardingState(progress.onboarding, body);
+    const updated = { ...progress, onboarding };
+    await saveProgress(updated);
+
+    return {
+      status: 200,
+      body: {
+        onboarding,
+        showOnboarding: shouldShowOnboarding(onboarding),
+      },
+    };
   }
 
   if (pathname === "/api/profile" && method === "GET") {

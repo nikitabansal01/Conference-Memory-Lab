@@ -60,6 +60,78 @@ const CAPACITY_DISPLAY = [
   { level: 5, label: "L6", name: "Trusted Delegate", tagline: "You focus, I handle the rest" },
 ];
 
+const LOOP_WALKTHROUGH = [
+  {
+    title: "Attend — show up & capture",
+    body: "Dump rough notes, photos, voice memos, or links while the event is fresh. This is your raw material.",
+  },
+  {
+    title: "Think — go deeper",
+    body: "What mattered? Compare what you heard to your Unique Lens and challenge your assumptions.",
+  },
+  {
+    title: "Connect — reach out",
+    body: "Follow up with people you met — personalized outreach while the conversation is still warm.",
+  },
+  {
+    title: "Create — draft & share",
+    body: "Turn insights into LinkedIn posts, threads, or newsletters anchored to your voice.",
+  },
+  {
+    title: "Review — approve before shipping",
+    body: "Nothing publishes until you approve it. The system learns trust from what you keep.",
+  },
+];
+
+const WALKTHROUGH_STEPS = [
+  {
+    title: "Start with your Unique Lens",
+    body:
+      "What are you learning right now — LLM evals, UI/UX, industry verticals? Which ongoing projects should event insights feed? This lens filters everything else.",
+    target: "#lens-card",
+    primary: { label: "Set up my lens", action: "lens" },
+    secondary: { label: "Next", action: "next" },
+  },
+  {
+    title: "Unlock memory & networking capacity",
+    body:
+      "Six levels unlock as you capture events, think through insights, and review drafts. You start at Level 1 — Observer — and earn deeper memory and networking help over time.",
+    target: "#sidebar-capacity",
+    showCapacityList: true,
+    primary: { label: "Got it", action: "next" },
+  },
+  {
+    title: "Add an event you care about",
+    body:
+      "Paste a Luma or conference link for something you attended recently or plan to attend. We'll name it, read the page, and help you show up intentionally.",
+    target: "#btn-new-event",
+    primary: { label: "Add an event", action: "event" },
+    secondary: { label: "Next", action: "next" },
+  },
+  {
+    title: "Your five-step loop",
+    body: "Each event moves through one stage at a time — never skip the thinking.",
+    isLoop: true,
+    target: "#latest-event .event-loop-track",
+    fallbackTarget: "#continue-actions",
+    primary: { label: "Next step", action: "loop-next" },
+  },
+  {
+    title: "Connect platforms when you're ready",
+    body:
+      "LinkedIn, Luma & calendar, and X appear here — even when locked. Integrations unlock after you review drafts so publishing matches your voice.",
+    target: '.sidebar-foot [data-nav="connections"]',
+    primary: { label: "See connections", action: "connections" },
+    secondary: { label: "Finish tour", action: "finish" },
+  },
+];
+
+let walkthroughStep = 0;
+let walkthroughLoopSub = 0;
+let walkthroughActive = false;
+let walkthroughPaused = false;
+let walkthroughTargetEl = null;
+
 const ACTION_STATUS = {
   complete_lens: { label: "Recommended", tone: "rec" },
   log_event: { label: "High priority", tone: "high" },
@@ -150,6 +222,7 @@ function renderHome() {
   showMainView("home");
   setSidebarNavActive("home");
   closeMobileMenu();
+  maybeStartWalkthrough(d);
 }
 
 function showMainView(view) {
@@ -1163,12 +1236,306 @@ function renderBottomBanner() {
     <div class="banner-inner">
       <span class="banner-leaf" aria-hidden="true"></span>
       <p>Small insights compound into unfair advantage. Keep capturing. Keep thinking. Keep shipping.</p>
-      <button type="button" class="btn btn-ghost-light" data-nav-help>View how it works →</button>
+      <button type="button" class="btn btn-ghost-light" data-replay-walkthrough>Replay app tour →</button>
     </div>`;
-  document.querySelector("[data-nav-help]")?.addEventListener("click", () => {
-    alert("Your loop: Attend → Think → Connect → Create → Review. Log an event, open the session workspace, and work through each step.");
+  document.querySelector("[data-replay-walkthrough]")?.addEventListener("click", () => {
+    replayWalkthrough();
   });
 }
+
+async function saveWalkthroughState(patch) {
+  const data = await fetchJson("/api/onboarding", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (dashboardData) {
+    dashboardData.onboarding = data.onboarding;
+    dashboardData.showOnboarding = data.showOnboarding;
+  }
+  return data;
+}
+
+function clearWalkthroughHighlight() {
+  walkthroughTargetEl?.classList.remove("walkthrough-target-active");
+  walkthroughTargetEl = null;
+  document.getElementById("walkthrough-highlight")?.setAttribute("hidden", "");
+}
+
+function repositionWalkthroughHighlight() {
+  if (!walkthroughActive || walkthroughPaused) return;
+
+  const step = WALKTHROUGH_STEPS[walkthroughStep];
+  if (!step) return;
+
+  let selector = step.target;
+  if (step.isLoop) {
+    const hasLoopTarget = document.querySelector(step.target);
+    selector = hasLoopTarget ? step.target : step.fallbackTarget;
+  }
+
+  const target = selector ? document.querySelector(selector) : null;
+  const highlight = document.getElementById("walkthrough-highlight");
+  const panel = document.querySelector(".walkthrough-panel");
+  if (!highlight || !panel) return;
+
+  clearWalkthroughHighlight();
+
+  if (!target) {
+    highlight.setAttribute("hidden", "");
+    panel.classList.remove("is-docked");
+    panel.style.left = "";
+    panel.style.top = "";
+    panel.style.bottom = "28px";
+    panel.style.transform = "translateX(-50%)";
+    return;
+  }
+
+  walkthroughTargetEl = target;
+  target.classList.add("walkthrough-target-active");
+
+  const rect = target.getBoundingClientRect();
+  const pad = 8;
+  highlight.removeAttribute("hidden");
+  highlight.style.top = `${Math.max(8, rect.top - pad)}px`;
+  highlight.style.left = `${Math.max(8, rect.left - pad)}px`;
+  highlight.style.width = `${Math.min(window.innerWidth - 16, rect.width + pad * 2)}px`;
+  highlight.style.height = `${Math.min(window.innerHeight - 16, rect.height + pad * 2)}px`;
+
+  const panelRect = panel.getBoundingClientRect();
+  const spaceBelow = window.innerHeight - rect.bottom;
+  const spaceAbove = rect.top;
+
+  if (spaceBelow > panelRect.height + 24) {
+    panel.classList.add("is-docked");
+    panel.style.left = `${Math.min(Math.max(16, rect.left), window.innerWidth - panelRect.width - 16)}px`;
+    panel.style.top = `${rect.bottom + 16}px`;
+    panel.style.bottom = "auto";
+    panel.style.transform = "none";
+  } else if (spaceAbove > panelRect.height + 24) {
+    panel.classList.add("is-docked");
+    panel.style.left = `${Math.min(Math.max(16, rect.left), window.innerWidth - panelRect.width - 16)}px`;
+    panel.style.top = `${Math.max(16, rect.top - panelRect.height - 16)}px`;
+    panel.style.bottom = "auto";
+    panel.style.transform = "none";
+  } else {
+    panel.classList.remove("is-docked");
+    panel.style.left = "50%";
+    panel.style.top = "";
+    panel.style.bottom = "28px";
+    panel.style.transform = "translateX(-50%)";
+  }
+}
+
+function renderWalkthroughCapacityList() {
+  const el = document.getElementById("walkthrough-capacity-list");
+  if (!el) return;
+  el.innerHTML = CAPACITY_DISPLAY.map((entry, index) => `
+    <div class="walkthrough-capacity-item${index === 0 ? " is-current" : ""}">
+      <span class="walkthrough-capacity-badge">${escapeHtml(entry.label)}</span>
+      <div>
+        <strong>${escapeHtml(entry.name)}</strong>
+        <span>${escapeHtml(entry.tagline)}</span>
+      </div>
+    </div>`).join("");
+  el.classList.remove("hidden");
+}
+
+function renderWalkthroughLoopPreview() {
+  const el = document.getElementById("walkthrough-loop");
+  if (!el) return;
+  el.innerHTML = `
+    <div class="walkthrough-loop-track">
+      ${LOOP.map((step, index) => `
+        <div class="walkthrough-loop-step${index === walkthroughLoopSub ? " is-current" : index < walkthroughLoopSub ? " is-done" : ""}">
+          <span class="walkthrough-loop-step-num">${index + 1}</span>
+          <span class="walkthrough-loop-step-label">${escapeHtml(step.label)}</span>
+          <span class="walkthrough-loop-step-verb">${escapeHtml(step.verb)}</span>
+        </div>`).join("")}
+    </div>`;
+  el.classList.remove("hidden");
+}
+
+function renderWalkthroughDots() {
+  const el = document.getElementById("walkthrough-dots");
+  if (!el) return;
+  el.innerHTML = WALKTHROUGH_STEPS.map((_, index) =>
+    `<span class="walkthrough-dot${index === walkthroughStep ? " is-active" : ""}"></span>`
+  ).join("");
+}
+
+function renderWalkthroughPanel() {
+  const step = WALKTHROUGH_STEPS[walkthroughStep];
+  if (!step) return;
+
+  const loopMeta = step.isLoop ? LOOP_WALKTHROUGH[walkthroughLoopSub] : null;
+  const kicker = step.isLoop
+    ? `Step ${walkthroughStep + 1} of ${WALKTHROUGH_STEPS.length} · ${LOOP[walkthroughLoopSub]?.label ?? "Loop"}`
+    : `Step ${walkthroughStep + 1} of ${WALKTHROUGH_STEPS.length}`;
+
+  document.getElementById("walkthrough-kicker").textContent = kicker;
+  document.getElementById("walkthrough-title").textContent = loopMeta?.title ?? step.title;
+  document.getElementById("walkthrough-body").textContent = loopMeta?.body ?? step.body;
+
+  document.getElementById("walkthrough-capacity-list").classList.toggle("hidden", !step.showCapacityList);
+  document.getElementById("walkthrough-loop").classList.toggle("hidden", !step.isLoop);
+
+  if (step.showCapacityList) renderWalkthroughCapacityList();
+  if (step.isLoop) renderWalkthroughLoopPreview();
+
+  const primary = document.getElementById("walkthrough-primary");
+  const secondary = document.getElementById("walkthrough-secondary");
+
+  if (step.isLoop) {
+    primary.textContent = walkthroughLoopSub >= LOOP_WALKTHROUGH.length - 1 ? "Next section" : "Next step";
+    secondary.classList.add("hidden");
+  } else {
+    primary.textContent = step.primary.label;
+    if (step.secondary) {
+      secondary.textContent = step.secondary.label;
+      secondary.classList.remove("hidden");
+    } else {
+      secondary.classList.add("hidden");
+    }
+  }
+
+  renderWalkthroughDots();
+  requestAnimationFrame(() => repositionWalkthroughHighlight());
+}
+
+function showWalkthroughOverlay() {
+  const root = document.getElementById("walkthrough");
+  root.classList.remove("hidden");
+  root.setAttribute("aria-hidden", "false");
+  walkthroughActive = true;
+  walkthroughPaused = false;
+  renderWalkthroughPanel();
+}
+
+function hideWalkthroughOverlay() {
+  const root = document.getElementById("walkthrough");
+  root.classList.add("hidden");
+  root.setAttribute("aria-hidden", "true");
+  walkthroughActive = false;
+  walkthroughPaused = false;
+  clearWalkthroughHighlight();
+  document.getElementById("connections-list")?.classList.remove("is-walkthrough-preview");
+  document.getElementById("connections-modal-hint").textContent =
+    "Link accounts to import events and publish — unlocked as you review drafts and earn trust.";
+}
+
+function pauseWalkthroughForModal() {
+  if (!walkthroughActive) return;
+  walkthroughPaused = true;
+  document.getElementById("walkthrough")?.classList.add("hidden");
+  clearWalkthroughHighlight();
+}
+
+function resumeWalkthroughAfterModal() {
+  if (!walkthroughActive) return;
+  walkthroughPaused = false;
+  document.getElementById("walkthrough")?.classList.remove("hidden");
+  renderWalkthroughPanel();
+}
+
+async function advanceWalkthroughStep(nextStep, nextLoopSub = 0) {
+  walkthroughStep = nextStep;
+  walkthroughLoopSub = nextLoopSub;
+  if (walkthroughStep >= WALKTHROUGH_STEPS.length) {
+    await completeWalkthrough();
+    return;
+  }
+  await saveWalkthroughState({ step: walkthroughStep, loopSubStep: walkthroughLoopSub });
+  showMainView("home");
+  renderWalkthroughPanel();
+}
+
+async function completeWalkthrough(options = {}) {
+  hideWalkthroughOverlay();
+  if (!options.silent) {
+    await saveWalkthroughState({ completed: true, step: WALKTHROUGH_STEPS.length, loopSubStep: 0 });
+  }
+}
+
+async function skipWalkthrough() {
+  hideWalkthroughOverlay();
+  await saveWalkthroughState({ skipped: true, completed: true, step: WALKTHROUGH_STEPS.length, loopSubStep: 0 });
+}
+
+async function handleWalkthroughPrimary() {
+  const step = WALKTHROUGH_STEPS[walkthroughStep];
+  if (!step) return;
+
+  if (step.isLoop) {
+    if (walkthroughLoopSub < LOOP_WALKTHROUGH.length - 1) {
+      walkthroughLoopSub += 1;
+      await saveWalkthroughState({ step: walkthroughStep, loopSubStep: walkthroughLoopSub });
+      renderWalkthroughPanel();
+      return;
+    }
+    await advanceWalkthroughStep(walkthroughStep + 1, 0);
+    return;
+  }
+
+  switch (step.primary.action) {
+    case "lens":
+      pauseWalkthroughForModal();
+      await openLensModal();
+      break;
+    case "event":
+      pauseWalkthroughForModal();
+      openEventModal();
+      break;
+    case "connections":
+      pauseWalkthroughForModal();
+      openConnectionsModal({ walkthroughPreview: true });
+      break;
+    case "next":
+      await advanceWalkthroughStep(walkthroughStep + 1, 0);
+      break;
+    case "finish":
+      await completeWalkthrough();
+      break;
+    default:
+      await advanceWalkthroughStep(walkthroughStep + 1, 0);
+  }
+}
+
+async function handleWalkthroughSecondary() {
+  const step = WALKTHROUGH_STEPS[walkthroughStep];
+  if (!step?.secondary) return;
+
+  if (step.secondary.action === "finish") {
+    await completeWalkthrough();
+    return;
+  }
+
+  await advanceWalkthroughStep(walkthroughStep + 1, 0);
+}
+
+function maybeStartWalkthrough(d, force = false) {
+  if (!force && !d.showOnboarding) return;
+  walkthroughStep = d.onboarding?.step ?? 0;
+  walkthroughLoopSub = d.onboarding?.loopSubStep ?? 0;
+  if (walkthroughStep >= WALKTHROUGH_STEPS.length) return;
+  showMainView("home");
+  showWalkthroughOverlay();
+}
+
+async function replayWalkthrough() {
+  await saveWalkthroughState({ completed: false, skipped: false, step: 0, loopSubStep: 0 });
+  walkthroughStep = 0;
+  walkthroughLoopSub = 0;
+  if (!dashboardData) {
+    await ensureDashboardData();
+  }
+  dashboardData.showOnboarding = true;
+  dashboardData.onboarding = { completed: false, step: 0, loopSubStep: 0 };
+  showMainView("home");
+  showWalkthroughOverlay();
+}
+
+window.replayWalkthrough = replayWalkthrough;
 
 function formatWhenLabel(iso) {
   const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
@@ -1216,9 +1583,11 @@ const INTEGRATIONS = [
   },
 ];
 
-function renderConnectionsList() {
+function renderConnectionsList(options = {}) {
   const level = dashboardData?.progress?.level ?? 0;
   const el = document.getElementById("connections-list");
+  const preview = Boolean(options.walkthroughPreview);
+  el.classList.toggle("is-walkthrough-preview", preview);
 
   el.innerHTML = INTEGRATIONS.map((item) => {
     const unlocked = level >= item.unlockLevel;
@@ -1230,11 +1599,11 @@ function renderConnectionsList() {
           ${
             unlocked
               ? `<span class="connection-status is-ready">Ready to connect</span>`
-              : `<span class="connection-status">Unlocks at Level ${item.unlockLevel} · ${escapeHtml(item.unlockName)} — review drafts first so the system learns your voice</span>`
+              : `<span class="connection-status">${preview ? "Preview — " : ""}Unlocks at Level ${item.unlockLevel} · ${escapeHtml(item.unlockName)} — review drafts first so the system learns your voice</span>`
           }
         </div>
         <button type="button" class="btn btn-small${unlocked ? " btn-primary" : ""}" data-connect="${item.id}" ${unlocked ? "" : "disabled"}>
-          ${unlocked ? "Connect" : "Locked"}
+          ${unlocked ? "Connect" : preview ? "Preview" : "Locked"}
         </button>
       </div>`;
   }).join("");
@@ -1249,12 +1618,20 @@ function renderConnectionsList() {
   });
 }
 
-function openConnectionsModal() {
+function openConnectionsModal(options = {}) {
   if (!dashboardData) {
-    ensureDashboardData().then(openConnectionsModal);
+    ensureDashboardData().then(() => openConnectionsModal(options));
     return;
   }
-  renderConnectionsList();
+  renderConnectionsList(options);
+  const hintEl = document.getElementById("connections-modal-hint");
+  if (options.walkthroughPreview) {
+    hintEl.textContent =
+      "Preview of what's coming — integrations stay locked until you review drafts and earn trust.";
+  } else {
+    hintEl.textContent =
+      "Link accounts to import events and publish — unlocked as you review drafts and earn trust.";
+  }
   document.getElementById("modal-connections").showModal();
 }
 
@@ -1766,16 +2143,25 @@ function handleNav(nav) {
       returnView = "home";
       ensureHomeView().then(() => {
         setSidebarNavActive("home");
-        renderBottomBanner();
-        document.getElementById("bottom-banner")?.scrollIntoView({ behavior: "smooth" });
+        replayWalkthrough();
       });
       break;
   }
 }
 
 document.getElementById("btn-new-event").addEventListener("click", openEventModal);
-document.getElementById("btn-cancel-event").addEventListener("click", () => document.getElementById("modal-event").close());
-document.getElementById("btn-cancel-lens").addEventListener("click", () => document.getElementById("modal-lens").close());
+document.getElementById("btn-cancel-event").addEventListener("click", () => {
+  document.getElementById("modal-event").close();
+  if (walkthroughActive && walkthroughPaused && walkthroughStep === 2) {
+    resumeWalkthroughAfterModal();
+  }
+});
+document.getElementById("btn-cancel-lens").addEventListener("click", () => {
+  document.getElementById("modal-lens").close();
+  if (walkthroughActive && walkthroughPaused && walkthroughStep === 0) {
+    resumeWalkthroughAfterModal();
+  }
+});
 document.getElementById("btn-close-connections").addEventListener("click", () => document.getElementById("modal-connections").close());
 document.getElementById("btn-cancel-link").addEventListener("click", () => document.getElementById("modal-link").close());
 document.getElementById("btn-back").addEventListener("click", () => {
@@ -1862,6 +2248,9 @@ document.getElementById("form-event").addEventListener("submit", async (e) => {
   document.getElementById("event-title-preview")?.classList.add("hidden");
   await loadDashboard();
   if (result.session?.id) {
+    if (walkthroughActive && walkthroughStep === 2) {
+      pauseWalkthroughForModal();
+    }
     openEventOutcomeModal(result.eventPreview, result.session.id, result.session, result.intentSuggestions);
   }
 });
@@ -1926,13 +2315,23 @@ document.getElementById("form-lens").addEventListener("submit", async (e) => {
     errEl.classList.remove("hidden");
     return;
   }
+  if (walkthroughActive && walkthroughStep === 0) {
+    await loadDashboard();
+    await advanceWalkthroughStep(1, 0);
+    document.getElementById("modal-lens").close();
+    resumeWalkthroughAfterModal();
+    return;
+  }
   document.getElementById("modal-lens").close();
   await loadDashboard();
 });
 
-document.getElementById("btn-close-event-outcome").addEventListener("click", () =>
-  document.getElementById("modal-event-outcome").close()
-);
+document.getElementById("btn-close-event-outcome").addEventListener("click", () => {
+  document.getElementById("modal-event-outcome").close();
+  if (walkthroughActive && walkthroughPaused && walkthroughStep === 2) {
+    resumeWalkthroughAfterModal();
+  }
+});
 document.getElementById("btn-outcome-continue").addEventListener("click", async () => {
   const intent = document.getElementById("event-intent-input")?.value?.trim();
   if (!intent) {
@@ -1945,6 +2344,13 @@ document.getElementById("btn-outcome-continue").addEventListener("click", async 
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ attendanceIntent: intent }),
     });
+  }
+  if (walkthroughActive && walkthroughStep === 2) {
+    await loadDashboard();
+    await advanceWalkthroughStep(3, 0);
+    document.getElementById("modal-event-outcome").close();
+    resumeWalkthroughAfterModal();
+    return;
   }
   document.getElementById("modal-event-outcome").close();
   if (outcomeSessionId) openSession(outcomeSessionId, "attend");
@@ -1961,6 +2367,24 @@ function enableDialogBackdropClose(id) {
 ["modal-lens", "modal-event-outcome", "modal-link", "modal-event", "modal-connections"].forEach(
   enableDialogBackdropClose
 );
+
+document.getElementById("walkthrough-primary")?.addEventListener("click", () => {
+  handleWalkthroughPrimary().catch((err) => alert(err.message ?? "Could not continue tour"));
+});
+document.getElementById("walkthrough-secondary")?.addEventListener("click", () => {
+  handleWalkthroughSecondary().catch((err) => alert(err.message ?? "Could not continue tour"));
+});
+document.getElementById("walkthrough-skip")?.addEventListener("click", () => {
+  skipWalkthrough().catch((err) => alert(err.message ?? "Could not skip tour"));
+});
+window.addEventListener("resize", repositionWalkthroughHighlight);
+window.addEventListener("scroll", repositionWalkthroughHighlight, true);
+
+document.getElementById("modal-connections")?.addEventListener("close", () => {
+  if (walkthroughActive && walkthroughStep === 4) {
+    resumeWalkthroughAfterModal();
+  }
+});
 
 window.openEventModal = openEventModal;
 

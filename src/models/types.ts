@@ -170,6 +170,13 @@ export interface EventSession {
   xpEarned: number;
 }
 
+export interface OnboardingState {
+  completed: boolean;
+  step: number;
+  loopSubStep?: number;
+  skipped?: boolean;
+}
+
 export interface UserProgress {
   totalXp: number;
   level: TrustLevel;
@@ -178,6 +185,7 @@ export interface UserProgress {
   eventsAttended: number;
   unlockedActions: string[];
   milestones: Milestone[];
+  onboarding?: OnboardingState;
 }
 
 export interface Milestone {

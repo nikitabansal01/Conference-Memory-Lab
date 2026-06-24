@@ -3266,6 +3266,233 @@ h3 { margin: 0 0 8px; font-size: 1rem; }
 .form-warning { color: var(--gold); font-size: 0.88rem; margin: 0 0 12px; }
 .modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px; }
 
+.walkthrough {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  pointer-events: none;
+}
+
+.walkthrough:not(.hidden) {
+  pointer-events: auto;
+}
+
+.walkthrough-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(28, 25, 23, 0.42);
+}
+
+.walkthrough-highlight {
+  position: fixed;
+  border-radius: 14px;
+  box-shadow:
+    0 0 0 9999px rgba(28, 25, 23, 0.42),
+    0 0 0 3px var(--accent),
+    0 12px 40px rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+  transition: top 0.2s ease, left 0.2s ease, width 0.2s ease, height 0.2s ease;
+  z-index: 1001;
+}
+
+.walkthrough-highlight[hidden] {
+  display: none !important;
+}
+
+.walkthrough-target-active {
+  position: relative;
+  z-index: 1002;
+}
+
+.walkthrough-panel {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  width: min(520px, calc(100vw - 32px));
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+  padding: 20px 22px 18px;
+  z-index: 1003;
+}
+
+.walkthrough-panel.is-docked {
+  transform: none;
+}
+
+.walkthrough-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.walkthrough-kicker {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+}
+
+.walkthrough-close {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+.walkthrough-close:hover {
+  color: var(--ink);
+}
+
+.walkthrough-title {
+  margin: 0 0 8px;
+  font-family: "Fraunces", serif;
+  font-size: 1.25rem;
+  line-height: 1.25;
+}
+
+.walkthrough-body {
+  margin: 0 0 14px;
+  color: var(--ink);
+  line-height: 1.55;
+  font-size: 0.92rem;
+}
+
+.walkthrough-capacity-list {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.walkthrough-capacity-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 4%, var(--surface));
+}
+
+.walkthrough-capacity-item.is-current {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+}
+
+.walkthrough-capacity-item strong {
+  display: block;
+  font-size: 0.84rem;
+  margin-bottom: 2px;
+}
+
+.walkthrough-capacity-item span {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.walkthrough-capacity-badge {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--accent);
+  min-width: 28px;
+}
+
+.walkthrough-loop {
+  margin-bottom: 14px;
+}
+
+.walkthrough-loop-track {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.walkthrough-loop-step {
+  flex: 1 1 88px;
+  min-width: 88px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px;
+  background: white;
+  text-align: left;
+}
+
+.walkthrough-loop-step.is-current {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, white);
+}
+
+.walkthrough-loop-step.is-done {
+  opacity: 0.72;
+}
+
+.walkthrough-loop-step-num {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 4px;
+}
+
+.walkthrough-loop-step-label {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.walkthrough-loop-step-verb {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.75rem;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.walkthrough-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.walkthrough-dots {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 14px;
+}
+
+.walkthrough-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #d6d3d1;
+}
+
+.walkthrough-dot.is-active {
+  background: var(--accent);
+}
+
+.connections-list.is-walkthrough-preview .connection-row {
+  opacity: 1;
+}
+
+.connections-list.is-walkthrough-preview .connection-row:not(.is-unlocked) .connection-status {
+  color: var(--muted);
+}
+
 @media (max-width: 960px) {
   .dashboard-grid { grid-template-columns: 1fr; }
   .hero { grid-template-columns: 1fr; }

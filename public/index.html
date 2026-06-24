@@ -236,13 +236,33 @@
   <dialog id="modal-connections" class="modal">
     <header class="modal-header">
       <h2>Connections</h2>
-      <p class="section-hint">Link accounts to import events and publish — unlocked as you review drafts and earn trust.</p>
+      <p class="section-hint" id="connections-modal-hint">Link accounts to import events and publish — unlocked as you review drafts and earn trust.</p>
     </header>
     <div class="connections-list" id="connections-list"></div>
     <footer class="modal-footer">
       <button type="button" class="btn btn-ghost" id="btn-close-connections">Close</button>
     </footer>
   </dialog>
+
+  <div id="walkthrough" class="walkthrough hidden" aria-hidden="true">
+    <div class="walkthrough-scrim" id="walkthrough-scrim"></div>
+    <div class="walkthrough-highlight" id="walkthrough-highlight" hidden></div>
+    <div class="walkthrough-panel" role="dialog" aria-modal="true" aria-labelledby="walkthrough-title">
+      <div class="walkthrough-panel-head">
+        <p class="walkthrough-kicker" id="walkthrough-kicker">Step 1 of 5</p>
+        <button type="button" class="walkthrough-close" id="walkthrough-skip" aria-label="Skip tour">Skip</button>
+      </div>
+      <h2 class="walkthrough-title" id="walkthrough-title"></h2>
+      <p class="walkthrough-body" id="walkthrough-body"></p>
+      <div class="walkthrough-capacity-list hidden" id="walkthrough-capacity-list"></div>
+      <div class="walkthrough-loop hidden" id="walkthrough-loop"></div>
+      <div class="walkthrough-actions">
+        <button type="button" class="btn btn-ghost" id="walkthrough-secondary">Next</button>
+        <button type="button" class="btn btn-primary" id="walkthrough-primary">Continue</button>
+      </div>
+      <div class="walkthrough-dots" id="walkthrough-dots" aria-hidden="true"></div>
+    </div>
+  </div>
 
   <script src="/app.js"></script>
   <script>
