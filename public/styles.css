@@ -2194,6 +2194,15 @@ h3 { margin: 0 0 8px; font-size: 1rem; }
   font-size: 2rem;
   font-weight: 700;
   color: var(--accent);
+  line-height: 1;
+}
+
+.score .score-denom {
+  font-family: "IBM Plex Sans", sans-serif;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--muted);
+  margin-left: 1px;
 }
 
 .score .label {
@@ -3825,6 +3834,46 @@ textarea.flow-row-detail::placeholder {
   border-top: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
   color: var(--muted);
   font-style: italic;
+}
+
+.review-score-criteria {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 45%, transparent);
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.review-score-criteria-heading {
+  margin: 0 0 6px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--ink) 45%, var(--muted));
+}
+
+.review-score-scale {
+  margin: 0 0 8px;
+}
+
+.review-score-criteria-list {
+  margin: 0;
+  padding: 0 0 0 1.1em;
+}
+
+.review-score-criteria-list li {
+  margin: 0 0 4px;
+}
+
+.review-score-criteria-list li:last-child {
+  margin-bottom: 0;
+}
+
+.review-score-criteria-list strong {
+  font-weight: 600;
+  color: color-mix(in srgb, var(--ink) 55%, var(--muted));
 }
 
 .flow-score-grid {

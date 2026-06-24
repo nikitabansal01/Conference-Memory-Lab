@@ -3537,18 +3537,35 @@ function scoreTone(value) {
   return "low";
 }
 
+const REVIEW_SCORE_MAX = 100;
+
+function renderReviewScoreCriteriaNote() {
+  return `
+    <div class="review-score-criteria">
+      <p class="review-score-criteria-heading">Evaluation criteria</p>
+      <p class="review-score-scale">Each dimension is scored out of ${REVIEW_SCORE_MAX} by the Review agent against your session claims, drafts, and Unique Lens.</p>
+      <ul class="review-score-criteria-list">
+        <li><strong>Grounding</strong> — statements traceable to your notes and claims, not invented quotes or attendees (pass 80+).</li>
+        <li><strong>Voice</strong> — reads like your past posts: conversational, plain English, no generic AI tone (pass 70+).</li>
+        <li><strong>Expertise</strong> — your PM/HCD/healthcare/eval angle is visible and additive, not surface-level (pass 75+).</li>
+        <li><strong>Non-obvious</strong> — adds insight or reframing beyond an event recap (pass 65+).</li>
+      </ul>
+    </div>`;
+}
+
 function renderReviewScoresBody(session) {
   const e = session.evalScores;
   const hasDrafts = (session.contentDrafts ?? []).length > 0;
+  const criteriaNote = renderReviewScoreCriteriaNote();
 
   if (session.stage === "synthesized") {
-    return renderFlowEmpty("Run Create first — then review scores appear here…");
+    return `${renderFlowEmpty("Run Create first — then review scores appear here…")}${criteriaNote}`;
   }
   if (session.stage === "drafted" && hasDrafts && !e) {
-    return renderFlowEmpty("Run Review below to score grounding, voice, lens fit, and non-obviousness…");
+    return `${renderFlowEmpty("Run Review below to score grounding, voice, lens fit, and non-obviousness…")}${criteriaNote}`;
   }
   if (!e) {
-    return renderFlowEmpty("Review scores appear after you run Create and Review…");
+    return `${renderFlowEmpty("Review scores appear after you run Create and Review…")}${criteriaNote}`;
   }
 
   return `
@@ -3558,7 +3575,8 @@ function renderReviewScoresBody(session) {
       ${scoreCell("Expertise", e.expertiseLens, scoreTone(e.expertiseLens))}
       ${scoreCell("Non-obvious", e.nonObviousness, scoreTone(e.nonObviousness))}
     </div>
-    ${e.notes ? `<p class="flow-prose flow-review-note">${escapeHtml(e.notes)}</p>` : ""}`;
+    ${e.notes ? `<p class="flow-prose flow-review-note">${escapeHtml(e.notes)}</p>` : ""}
+    ${criteriaNote}`;
 }
 
 function renderReviewActionsBody(session) {
@@ -3851,7 +3869,7 @@ function getMatteredLine(session) {
 }
 
 function scoreCell(label, val, tone = "") {
-  return `<div class="score score-${tone}"><div class="val">${val}</div><div class="label">${label}</div></div>`;
+  return `<div class="score score-${tone}"><div class="val"><span class="score-number">${val}</span><span class="score-denom">/${REVIEW_SCORE_MAX}</span></div><div class="label">${label}</div></div>`;
 }
 
 function escapeHtml(str) {
