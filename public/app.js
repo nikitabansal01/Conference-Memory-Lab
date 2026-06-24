@@ -2239,9 +2239,15 @@ function setActiveTab(tab) {
 
 function renderAttend(session) {
   const people = session.people ?? [];
-  const claims = session.claims ?? [];
+  const rawClaims = session.claims ?? [];
+  const claims = rawClaims
+    .map((c) => ({ ...c, text: resolveClaimText(c) }))
+    .filter((c) => c.text);
+  const hasExtracted =
+    people.length > 0 || rawClaims.length > 0 || session.stage !== "ingested";
+  const rememberLabel = hasExtracted ? "Re-run Remember" : "Run Remember";
+  const missingClaimText = rawClaims.length - claims.length;
   const captures = session.captures ?? [];
-  const hasExtracted = people.length > 0 || claims.length > 0;
 
   const contextBlock =
     session.attendanceIntent || session.eventEnrichment?.description
@@ -2294,24 +2300,34 @@ function renderAttend(session) {
     </section>
 
     ${hasExtracted ? `
-    <details class="attend-extracted">
+    <details class="attend-extracted" open>
       <summary>Extracted memory (${people.length} people, ${claims.length} claims)</summary>
       <div class="grid-2" style="margin-top:14px">
         <div>
           <h3>People</h3>
-          ${people.map((p) => `<div class="entity"><strong>${escapeHtml(p.name)}</strong><span class="muted"> · ${escapeHtml(p.role)}</span></div>`).join("")}
+          ${people.length ? people.map((p) => `<div class="entity"><strong>${escapeHtml(p.name)}</strong><span class="muted"> · ${escapeHtml(p.role)}</span></div>`).join("") : '<p class="empty">No people extracted yet.</p>'}
         </div>
         <div>
           <h3>Claims</h3>
-          ${claims.slice(0, 6).map((c) => `<div class="claim"><div>${escapeHtml(formatClaimText(c.text))}</div></div>`).join("")}
+          ${
+            claims.length
+              ? claims
+                  .slice(0, 6)
+                  .map(
+                    (c) =>
+                      `<div class="claim${c.text.includes("[non-obvious]") ? " non-obvious" : ""}"><div>${escapeHtml(formatClaimText(c.text))}</div></div>`
+                  )
+                  .join("")
+              : `<p class="empty">No claim text yet.${missingClaimText ? ` ${missingClaimText} claim${missingClaimText === 1 ? "" : "s"} came back without text — add notes and re-run Remember.` : ""}</p>`
+          }
         </div>
       </div>
-    </details>` : `
+    </details>` : ""}
     <div class="workflow-actions">
-      <button type="button" class="btn btn-primary" id="btn-run-remember">Run Remember</button>
+      <button type="button" class="btn btn-primary" id="btn-run-remember">${rememberLabel}</button>
       <span class="workflow-status" id="remember-status" aria-live="polite"></span>
-      <p class="field-hint">Extract people, claims, and themes from your notes.</p>
-    </div>`}`;
+      <p class="field-hint">${hasExtracted ? "Re-extract people, claims, and themes from your notes." : "Extract people, claims, and themes from your notes."}</p>
+    </div>`;
 }
 
 function captureUrl(sessionId, captureId) {
@@ -2842,13 +2858,39 @@ function openLinkModal(sessionId, eventTitle) {
   document.getElementById("modal-link").showModal();
 }
 
+function resolveClaimText(claim) {
+  if (typeof claim === "string") return claim.trim();
+  if (!claim || typeof claim !== "object") return "";
+  const value =
+    claim.text ??
+    claim.statement ??
+    claim.content ??
+    claim.claim ??
+    claim.description ??
+    claim.summary ??
+    claim.insight ??
+    claim.title ??
+    "";
+  const text = String(value).trim();
+  if (text) return text;
+  const sources = claim.sources;
+  if (Array.isArray(sources)) {
+    for (const source of sources) {
+      const excerpt = source?.excerpt ?? source?.ref;
+      if (excerpt && String(excerpt).trim()) return String(excerpt).trim();
+    }
+  }
+  return "";
+}
+
 function formatClaimText(text) {
   return String(text ?? "").replace(/\[non-obvious\]\s*/i, "").trim();
 }
 
 function getMatteredLine(session) {
-  const claim = session.claims?.find((c) => c.text?.includes("[non-obvious]"));
-  if (claim?.text) return formatClaimText(claim.text);
+  const claim = session.claims?.find((c) => resolveClaimText(c).includes("[non-obvious]"));
+  const text = claim ? resolveClaimText(claim) : "";
+  if (text) return formatClaimText(text);
   if (session.themes?.[0]?.label) return session.themes[0].label;
   return "Capture what stood out from this event.";
 }

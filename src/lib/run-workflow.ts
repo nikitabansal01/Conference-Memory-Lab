@@ -1,6 +1,7 @@
 import type { EventSession, SessionStage, TrustLevel } from "../models/types.js";
 import { buildWorkflowPrompt, type WorkflowName } from "./prompts.js";
 import { callLlm, isLlmConfigured, parseJsonFromLlm } from "./llm.js";
+import { normalizeClaims } from "./claims.js";
 import { mergeSessionUpdate, applyStageCompletion } from "./complete.js";
 import { canPerformAction, getLevelDefinition } from "../trust/levels.js";
 import { loadProgress, saveProgress, saveSession, loadProfileOrExample } from "./storage.js";
@@ -54,18 +55,6 @@ function assertMinStage(session: EventSession, workflow: RunnableWorkflow): void
   }
 }
 
-function claimTextFromRaw(raw: Record<string, unknown>): string {
-  const value =
-    raw.text ??
-    raw.statement ??
-    raw.content ??
-    raw.claim ??
-    raw.description ??
-    raw.summary ??
-    "";
-  return String(value).trim();
-}
-
 function normalizeWorkflowUpdate(
   workflow: RunnableWorkflow,
   update: Partial<EventSession>
@@ -82,20 +71,7 @@ function normalizeWorkflowUpdate(
       metInPerson: Boolean(p.metInPerson),
     }));
 
-  const claims = (update.claims ?? [])
-    .map((c, i) => {
-      const raw = c as unknown as Record<string, unknown>;
-      const text = claimTextFromRaw(raw);
-      if (!text) return null;
-      return {
-        ...c,
-        id: c.id || `claim-${i + 1}`,
-        text,
-        confidence: c.confidence ?? "medium",
-        sources: Array.isArray(c.sources) ? c.sources : [],
-      };
-    })
-    .filter((c): c is NonNullable<typeof c> => c !== null);
+  const claims = normalizeClaims(update.claims as unknown[] | undefined);
 
   const themes = (update.themes ?? [])
     .filter((t) => t && String(t.label ?? "").trim())

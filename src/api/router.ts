@@ -25,6 +25,7 @@ import { buildActionItems, buildAllActionItems, buildSessionActionItems, capabil
 import { buildContentHub } from "../lib/content-hub.js";
 import { buildCapacitySidebarModel } from "../lib/capacity-display.js";
 import { computeLearningStreak } from "../lib/learning-streak.js";
+import { normalizeSessionClaims } from "../lib/claims.js";
 import {
   mergeOnboardingState,
   normalizeOnboarding,
@@ -691,14 +692,15 @@ export async function routeApi(
     try {
       const result = await runSessionWorkflow(workflow, session, auth.userId);
       const profile = await loadProfileOrExample(auth.userId);
+      const normalizedSession = normalizeSessionClaims(result.session);
       return {
         status: 200,
         body: {
           session: {
-            ...result.session,
-            eventLinkNudge: eventLinkNudge(result.session),
-            eventLinkInfo: result.session.eventUrl ? parseEventUrl(result.session.eventUrl) : null,
-            connectionDrafts: buildConnectionDrafts(result.session, profile),
+            ...normalizedSession,
+            eventLinkNudge: eventLinkNudge(normalizedSession),
+            eventLinkInfo: normalizedSession.eventUrl ? parseEventUrl(normalizedSession.eventUrl) : null,
+            connectionDrafts: buildConnectionDrafts(normalizedSession, profile),
           },
           xpAwarded: result.xpAwarded,
           leveledUp: result.leveledUp,
@@ -756,13 +758,14 @@ export async function routeApi(
       return { status: 404, body: { error: "Session not found" } };
     }
     const profile = await loadProfileOrExample(auth.userId);
+    const normalizedSession = normalizeSessionClaims(session);
     return {
       status: 200,
       body: {
-        ...session,
-        eventLinkNudge: eventLinkNudge(session),
-        eventLinkInfo: session.eventUrl ? parseEventUrl(session.eventUrl) : null,
-        connectionDrafts: buildConnectionDrafts(session, profile),
+        ...normalizedSession,
+        eventLinkNudge: eventLinkNudge(normalizedSession),
+        eventLinkInfo: normalizedSession.eventUrl ? parseEventUrl(normalizedSession.eventUrl) : null,
+        connectionDrafts: buildConnectionDrafts(normalizedSession, profile),
       },
     };
   }
