@@ -148,22 +148,69 @@ async function authFetch(url, options = {}) {
   return fetch(url, { ...options, headers });
 }
 
-function waitForClerkScript() {
+function clerkScriptUrl(publishableKey) {
+  const encoded = publishableKey.replace(/^pk_(?:test|live)_/, "");
+  try {
+    const padded = encoded + "=".repeat((4 - (encoded.length % 4)) % 4);
+    const domain = atob(padded.replace(/-/g, "+").replace(/_/g, "/")).replace(/\$$/, "");
+    if (domain.includes("clerk.")) {
+      return `https://${domain}/npm/@clerk/clerk-js@5/dist/clerk.browser.js`;
+    }
+  } catch {
+    // fall through to public CDN
+  }
+  return "https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js";
+}
+
+function loadClerkJs(publishableKey) {
   return new Promise((resolve, reject) => {
-    if (window.Clerk) {
-      resolve();
+    if (window.Clerk?.loaded) {
+      resolve(window.Clerk);
       return;
     }
-    let attempts = 0;
-    const timer = setInterval(() => {
-      if (window.Clerk) {
-        clearInterval(timer);
-        resolve();
-      } else if (++attempts > 120) {
-        clearInterval(timer);
-        reject(new Error("Sign-in failed to load. Refresh and try again."));
+
+    const finish = async () => {
+      try {
+        if (!window.Clerk) {
+          reject(new Error("Sign-in library did not initialize."));
+          return;
+        }
+        await window.Clerk.load({ publishableKey });
+        resolve(window.Clerk);
+      } catch (err) {
+        reject(err instanceof Error ? err : new Error("Sign-in failed to initialize."));
       }
-    }, 50);
+    };
+
+    const existing = document.getElementById("clerk-js-script");
+    if (existing) {
+      if (window.Clerk) {
+        finish().catch(reject);
+        return;
+      }
+      existing.addEventListener("load", () => finish().catch(reject), { once: true });
+      existing.addEventListener(
+        "error",
+        () => reject(new Error("Could not load sign-in. Try disabling ad blockers and refresh.")),
+        { once: true }
+      );
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.id = "clerk-js-script";
+    script.async = true;
+    script.crossOrigin = "anonymous";
+    script.type = "text/javascript";
+    script.dataset.clerkPublishableKey = publishableKey;
+    script.src = clerkScriptUrl(publishableKey);
+    script.addEventListener("load", () => finish().catch(reject), { once: true });
+    script.addEventListener(
+      "error",
+      () => reject(new Error("Could not load sign-in. Try disabling ad blockers and refresh.")),
+      { once: true }
+    );
+    document.head.appendChild(script);
   });
 }
 
@@ -236,23 +283,34 @@ async function boot() {
   }
 
   if (needsClerk) {
-    await waitForClerkScript();
-    await window.Clerk.load({ publishableKey });
-    clerkInstance = window.Clerk;
-
-    if (!clerkInstance.user) {
+    try {
       showAuthGate();
-      clerkInstance.addListener(({ user }) => {
-        if (user) {
-          hideAuthGate();
-          startApp().catch(handleBootError);
-        }
-      });
-      clerkInstance.mountSignIn(document.getElementById("clerk-sign-in"), {
-        afterSignInUrl: window.location.href,
-        afterSignUpUrl: window.location.href,
-        signUpUrl: window.location.href,
-      });
+      clerkInstance = await loadClerkJs(publishableKey);
+
+      if (!clerkInstance.user) {
+        clerkInstance.addListener(({ user }) => {
+          if (user) {
+            hideAuthGate();
+            startApp().catch((err) => handleBootError(err, { authFailure: true }));
+          }
+        });
+        clerkInstance.mountSignIn(document.getElementById("clerk-sign-in"), {
+          afterSignInUrl: window.location.href,
+          afterSignUpUrl: window.location.href,
+          signUpUrl: window.location.href,
+        });
+        return;
+      }
+    } catch (err) {
+      showAuthGate();
+      const signInEl = document.getElementById("clerk-sign-in");
+      const message = err instanceof Error ? err.message : "Sign-in failed to load.";
+      if (signInEl) {
+        signInEl.innerHTML = `
+          <p class="auth-gate-message">${escapeHtml(message)}</p>
+          <p class="auth-gate-message">If this keeps happening, disable ad blockers or try another browser.</p>
+          <button type="button" class="btn btn-primary" onclick="location.reload()">Retry</button>`;
+      }
       return;
     }
   }
@@ -261,7 +319,19 @@ async function boot() {
   await startApp();
 }
 
-function handleBootError(err) {
+function handleBootError(err, options = {}) {
+  if (options.authFailure) {
+    showAuthGate();
+    const signInEl = document.getElementById("clerk-sign-in");
+    const message = err instanceof Error ? err.message : "Could not start the app";
+    if (signInEl && !signInEl.querySelector(".auth-gate-message")) {
+      signInEl.innerHTML = `
+        <p class="auth-gate-message">${escapeHtml(message)}</p>
+        <button type="button" class="btn btn-primary" onclick="location.reload()">Retry</button>`;
+    }
+    return;
+  }
+
   dashboardData = buildFallbackDashboardData();
   hideAuthGate();
   renderHome();
