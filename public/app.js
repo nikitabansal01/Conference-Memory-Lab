@@ -93,7 +93,7 @@ const WALKTHROUGH_STEPS = [
     secondary: { label: "Next", action: "next" },
   },
   {
-    title: "Unlock memory & networking capacity",
+    title: "Level up your Memory & Networking Capacity",
     body:
       "Six levels unlock as you capture events, think through insights, and review drafts. You start at Level 1 — Observer — and earn deeper memory and networking help over time.",
     target: "#sidebar-capacity",
@@ -1733,6 +1733,12 @@ const INTEGRATIONS = [
   },
 ];
 
+function integrationUnlockCopy(item) {
+  const cap = CAPACITY_DISPLAY[item.unlockLevel];
+  if (cap) return `Unlocks at ${cap.label} · ${cap.name}`;
+  return `Unlocks at Level ${item.unlockLevel + 1} · ${escapeHtml(item.unlockName)}`;
+}
+
 function renderConnectionsList(options = {}) {
   const level = dashboardData?.progress?.level ?? 0;
   const el = document.getElementById("connections-list");
@@ -1741,20 +1747,26 @@ function renderConnectionsList(options = {}) {
 
   el.innerHTML = INTEGRATIONS.map((item) => {
     const unlocked = level >= item.unlockLevel;
+    const statusHtml = unlocked
+      ? `<span class="connection-status is-ready">Ready to connect</span>`
+      : preview
+        ? `<span class="connection-status connection-status-preview">${integrationUnlockCopy(item)}</span>`
+        : `<span class="connection-status">${integrationUnlockCopy(item)} — review drafts first so the system learns your voice</span>`;
+
+    const actionHtml = unlocked
+      ? `<button type="button" class="btn btn-small btn-primary" data-connect="${item.id}">Connect</button>`
+      : preview
+        ? `<span class="connection-lock-badge">Locked</span>`
+        : `<button type="button" class="btn btn-small" data-connect="${item.id}" disabled>Locked</button>`;
+
     return `
-      <div class="connection-row${unlocked ? " is-unlocked" : ""}">
+      <div class="connection-row${unlocked ? " is-unlocked" : ""}${preview && !unlocked ? " is-preview" : ""}">
         <div class="connection-copy">
           <strong>${escapeHtml(item.name)}</strong>
           <p>${escapeHtml(item.description)}</p>
-          ${
-            unlocked
-              ? `<span class="connection-status is-ready">Ready to connect</span>`
-              : `<span class="connection-status">${preview ? "Preview — " : ""}Unlocks at Level ${item.unlockLevel} · ${escapeHtml(item.unlockName)} — review drafts first so the system learns your voice</span>`
-          }
+          ${statusHtml}
         </div>
-        <button type="button" class="btn btn-small${unlocked ? " btn-primary" : ""}" data-connect="${item.id}" ${unlocked ? "" : "disabled"}>
-          ${unlocked ? "Connect" : preview ? "Preview" : "Locked"}
-        </button>
+        ${actionHtml}
       </div>`;
   }).join("");
 
@@ -1777,10 +1789,12 @@ function openConnectionsModal(options = {}) {
   const hintEl = document.getElementById("connections-modal-hint");
   if (options.walkthroughPreview) {
     hintEl.textContent =
-      "Preview of what's coming — integrations stay locked until you review drafts and earn trust.";
+      "You'll connect these after reviewing drafts — integrations stay locked until the system learns your voice.";
+    document.getElementById("modal-connections")?.classList.add("is-walkthrough-preview");
   } else {
     hintEl.textContent =
       "Link accounts to import events and publish — unlocked as you review drafts and earn trust.";
+    document.getElementById("modal-connections")?.classList.remove("is-walkthrough-preview");
   }
   document.getElementById("modal-connections").showModal();
 }
