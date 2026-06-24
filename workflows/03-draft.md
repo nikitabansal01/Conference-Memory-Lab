@@ -35,13 +35,6 @@ Return JSON updating:
   "contentAngles": [],
   "contentDrafts": [],
   "followUpDrafts": [],
-  "evalScores": {
-    "grounding": 0,
-    "voice": 0,
-    "expertiseLens": 0,
-    "nonObviousness": 0,
-    "notes": ""
-  },
   "stage": "drafted"
 }
 ```

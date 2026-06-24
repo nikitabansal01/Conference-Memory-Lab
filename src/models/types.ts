@@ -99,7 +99,8 @@ export interface EvalScores {
   expertiseLens: number;
   nonObviousness: number;
   notes?: string;
-  humanOverride?: Partial<Record<keyof Omit<EvalScores, "notes" | "humanOverride">, number>>;
+  justifications?: Partial<Record<"grounding" | "voice" | "expertiseLens" | "nonObviousness", string>>;
+  humanOverride?: Partial<Record<keyof Omit<EvalScores, "notes" | "humanOverride" | "justifications">, number>>;
 }
 
 export interface AssumptionChallenge {

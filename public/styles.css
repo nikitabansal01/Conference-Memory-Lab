@@ -2211,6 +2211,14 @@ h3 { margin: 0 0 8px; font-size: 1rem; }
   margin-top: 4px;
 }
 
+.score-rationale {
+  margin: 8px 0 0;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--muted);
+  text-align: left;
+}
+
 .empty {
   color: var(--muted);
   font-style: italic;
@@ -3834,6 +3842,16 @@ textarea.flow-row-detail::placeholder {
   border-top: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
   color: var(--muted);
   font-style: italic;
+}
+
+.review-score-stale {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--gold-soft) 55%, #fff);
+  border: 1px solid color-mix(in srgb, var(--gold) 30%, var(--line));
+  font-size: 0.82rem;
+  color: var(--ink);
 }
 
 .review-score-criteria {

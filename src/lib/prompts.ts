@@ -116,11 +116,16 @@ export async function buildWorkflowPrompt(
     workflow === "draft"
       ? "\n## Create focus\nUse `themes[]` from synthesis as the primary input. Return at least one LinkedIn `contentDraft` per theme (max 3). Write from theme labels, profileConnection, and claims — do not imitate `pastPostExamples`.\n"
       : "";
+  const reviewFocus =
+    workflow === "self-critique"
+      ? "\n## Review focus\nReturn `evalRubric` with a rubric **band** and justification per dimension (not final 0–100 scores). The server calibrates scores from bands plus measurable draft signals (claim coverage, theme linkage, voice flags).\n"
+      : "";
 
   const userContext = [
     "## Event session",
     formatSessionContext(session, workflow),
     draftFocus,
+    reviewFocus,
     profile ? "\n## Expertise profile\n" + formatProfile(profile) : "",
     resume && workflow !== "draft" ? "\n## Resume (professional context)\n" + resume : "",
     rubric ? "\n## Eval rubrics\n" + rubric : "",

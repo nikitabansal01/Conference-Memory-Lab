@@ -3601,6 +3601,11 @@ function bindCreatePanel(session) {
   });
 }
 
+function evalScoresNeedRerun(evalScores) {
+  if (!evalScores) return false;
+  return !String(evalScores.notes ?? "").includes("material coverage");
+}
+
 function scoreTone(value) {
   if (value >= 80) return "good";
   if (value >= 65) return "ok";
@@ -3609,11 +3614,18 @@ function scoreTone(value) {
 
 const REVIEW_SCORE_MAX = 100;
 
+const REVIEW_SCORE_KEYS = [
+  { key: "grounding", label: "Grounding" },
+  { key: "voice", label: "Voice" },
+  { key: "expertiseLens", label: "Expertise" },
+  { key: "nonObviousness", label: "Non-obvious" },
+];
+
 function renderReviewScoreCriteriaNote() {
   return `
     <div class="review-score-criteria">
       <p class="review-score-criteria-heading">Evaluation criteria</p>
-      <p class="review-score-scale">Each dimension is scored out of ${REVIEW_SCORE_MAX} by the Review agent against your session claims, drafts, and Unique Lens.</p>
+      <p class="review-score-scale">Each dimension is scored 0–100 by combining rubric bands from Review with measurable draft signals (claim coverage, theme linkage, expertise mentions, voice flags).</p>
       <ul class="review-score-criteria-list">
         <li><strong>Grounding</strong> — statements traceable to your notes and claims, not invented quotes or attendees (pass 80+).</li>
         <li><strong>Voice</strong> — reads like your past posts: conversational, plain English, no generic AI tone (pass 70+).</li>
@@ -3627,6 +3639,7 @@ function renderReviewScoresBody(session) {
   const e = session.evalScores;
   const hasDrafts = (session.contentDrafts ?? []).length > 0;
   const criteriaNote = renderReviewScoreCriteriaNote();
+  const staleScores = evalScoresNeedRerun(e);
 
   if (session.stage === "synthesized") {
     return `${renderFlowEmpty("Run Create first — then review scores appear here…")}${criteriaNote}`;
@@ -3639,11 +3652,11 @@ function renderReviewScoresBody(session) {
   }
 
   return `
+    ${staleScores ? `<p class="review-score-stale">Earlier scores used an uncalibrated format — re-run Review for signal-based scoring.</p>` : ""}
     <div class="score-grid score-grid-modern flow-score-grid">
-      ${scoreCell("Grounding", e.grounding, scoreTone(e.grounding))}
-      ${scoreCell("Voice", e.voice, scoreTone(e.voice))}
-      ${scoreCell("Expertise", e.expertiseLens, scoreTone(e.expertiseLens))}
-      ${scoreCell("Non-obvious", e.nonObviousness, scoreTone(e.nonObviousness))}
+      ${REVIEW_SCORE_KEYS.map(({ key, label }) =>
+        scoreCell(label, e[key], scoreTone(e[key]), e.justifications?.[key])
+      ).join("")}
     </div>
     ${e.notes ? `<p class="flow-prose flow-review-note">${escapeHtml(e.notes)}</p>` : ""}
     ${criteriaNote}`;
@@ -3651,16 +3664,20 @@ function renderReviewScoresBody(session) {
 
 function renderReviewActionsBody(session) {
   const hasDrafts = (session.contentDrafts ?? []).length > 0;
-  const showRun = session.stage === "drafted" && hasDrafts && !session.evalScores;
+  const canRunReview =
+    (session.stage === "drafted" || session.stage === "reviewed") && hasDrafts;
+  const needsRun = !session.evalScores || evalScoresNeedRerun(session.evalScores);
 
   if (session.stage === "synthesized") {
     return `<p class="step-footer-hint">Complete Create on the previous tab first…</p>`;
   }
-  if (!showRun) return "";
+  if (!canRunReview || !needsRun) return "";
+
+  const label = session.evalScores ? "Re-run Review" : "Run Review";
 
   return renderStepActionRow(
     `
-    <button type="button" class="btn btn-primary btn-compact" id="btn-run-review">Run Review</button>
+    <button type="button" class="btn btn-primary btn-compact" id="btn-run-review">${label}</button>
     <span class="workflow-status" id="review-status" aria-live="polite"></span>`,
     "center"
   );
@@ -3938,8 +3955,8 @@ function getMatteredLine(session) {
   return "Capture what stood out from this event.";
 }
 
-function scoreCell(label, val, tone = "") {
-  return `<div class="score score-${tone}"><div class="val"><span class="score-number">${val}</span><span class="score-denom">/${REVIEW_SCORE_MAX}</span></div><div class="label">${label}</div></div>`;
+function scoreCell(label, val, tone = "", justification = "") {
+  return `<div class="score score-${tone}"><div class="val"><span class="score-number">${val}</span><span class="score-denom">/${REVIEW_SCORE_MAX}</span></div><div class="label">${label}</div>${justification ? `<p class="score-rationale">${escapeHtml(justification)}</p>` : ""}</div>`;
 }
 
 function escapeHtml(str) {

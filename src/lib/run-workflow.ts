@@ -1,8 +1,9 @@
-import type { EventSession, SessionStage, TrustLevel } from "../models/types.js";
+import type { EvalScores, EventSession, SessionStage, TrustLevel } from "../models/types.js";
 import { buildWorkflowPrompt, type WorkflowName } from "./prompts.js";
 import { callLlm, isLlmConfigured, parseJsonFromLlm } from "./llm.js";
 import { normalizeClaims } from "./claims.js";
 import { finalizeDraftWorkflowOutput } from "./content-drafts.js";
+import { computeEvalScores } from "./eval-scores.js";
 import { mergeSessionUpdate, applyStageCompletion } from "./complete.js";
 import { canPerformAction, getLevelDefinition } from "../trust/levels.js";
 import { loadProgress, saveProgress, saveSession, loadProfileOrExample } from "./storage.js";
@@ -91,20 +92,23 @@ function normalizeWorkflowUpdate(
   }
 
   if (workflow === "draft") {
-    return finalizeDraftWorkflowOutput(session, update);
+    const finalized = finalizeDraftWorkflowOutput(session, update);
+    delete finalized.evalScores;
+    return finalized;
   }
 
   return update;
 }
 
-function mergeCritiqueExtras(
-  session: EventSession,
-  update: Record<string, unknown>
-): Partial<EventSession> {
-  const merged = { ...(update as Partial<EventSession>) };
-  const edits = update.suggestedEdits;
-  const sentences = update.sentencesToRevise;
-  if (!Array.isArray(edits) && !Array.isArray(sentences)) return merged;
+function appendCritiqueNotes(
+  evalScores: EvalScores | undefined,
+  parsed: Record<string, unknown>
+): EvalScores | undefined {
+  if (!evalScores) return undefined;
+
+  const edits = parsed.suggestedEdits;
+  const sentences = parsed.sentencesToRevise;
+  if (!Array.isArray(edits) && !Array.isArray(sentences)) return evalScores;
 
   const parts: string[] = [];
   if (Array.isArray(edits) && edits.length) {
@@ -113,13 +117,11 @@ function mergeCritiqueExtras(
   if (Array.isArray(sentences) && sentences.length) {
     parts.push("Sentences to revise:\n" + sentences.map((s) => `- ${String(s)}`).join("\n"));
   }
-  if (parts.length && merged.evalScores) {
-    merged.evalScores = {
-      ...merged.evalScores,
-      notes: [merged.evalScores.notes, parts.join("\n\n")].filter(Boolean).join("\n\n"),
-    };
-  }
-  return merged;
+
+  return {
+    ...evalScores,
+    notes: [evalScores.notes, parts.join("\n\n")].filter(Boolean).join("\n\n"),
+  };
 }
 
 export async function runSessionWorkflow(
@@ -142,6 +144,8 @@ export async function runSessionWorkflow(
   if (workflow === "self-critique" && !session.contentDrafts?.length) {
     throw new Error("Run Create first — no drafts to review yet.");
   }
+
+  assertMinStage(session, workflow);
 
   const progress = await loadProgress(userId);
   const userLevel = progress.level as TrustLevel;
@@ -172,9 +176,19 @@ export async function runSessionWorkflow(
   ].join("\n");
 
   const raw = await callLlm(bundle.systemPrompt, userPrompt);
-  const parsed = parseJsonFromLlm(raw);
-  const critiqueMerged = workflow === "self-critique" ? mergeCritiqueExtras(session, parsed) : parsed;
-  const update = normalizeWorkflowUpdate(workflow, session, critiqueMerged as Partial<EventSession>);
+  const parsed = parseJsonFromLlm(raw) as Record<string, unknown>;
+  let update = normalizeWorkflowUpdate(workflow, session, parsed as Partial<EventSession>);
+
+  if (workflow === "self-critique") {
+    const evalScores = appendCritiqueNotes(
+      computeEvalScores(session, profile, parsed),
+      parsed
+    );
+    if (evalScores) {
+      update = { ...update, evalScores };
+    }
+  }
+
   const { stage: _ignored, ...updateWithoutStage } = update;
 
   const merged = mergeSessionUpdate(session, updateWithoutStage);
