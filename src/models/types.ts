@@ -145,6 +145,7 @@ export interface EventEnrichment {
 
 export interface EventSession {
   id: string;
+  userId?: string;
   createdAt: string;
   updatedAt: string;
   title: string;

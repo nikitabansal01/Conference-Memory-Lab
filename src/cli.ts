@@ -27,7 +27,9 @@ import {
   getCumulativeActions,
 } from "./trust/levels.js";
 import { formatLevelBadge } from "./gamification/xp.js";
+import { getDevUserId } from "./lib/auth.js";
 
+const CLI_USER_ID = getDevUserId();
 const EVENT_TYPES: EventType[] = ["mixer", "panel", "conference", "webinar", "other"];
 
 function usage(): void {
@@ -93,7 +95,7 @@ async function cmdNew(args: Record<string, string | boolean>): Promise<void> {
     process.exit(1);
   }
 
-  const progress = await loadProgress();
+  const progress = await loadProgress(CLI_USER_ID);
   const { session, progress: updated } = createSession({
     title,
     eventType,
@@ -103,8 +105,8 @@ async function cmdNew(args: Record<string, string | boolean>): Promise<void> {
     userProgress: progress,
   });
 
-  await saveSession(session);
-  await saveProgress(updated);
+  await saveSession({ ...session, userId: CLI_USER_ID }, CLI_USER_ID);
+  await saveProgress(updated, CLI_USER_ID);
 
   const def = getLevelDefinition(updated.level);
   console.log("\n✓ Session created");
@@ -116,7 +118,7 @@ async function cmdNew(args: Record<string, string | boolean>): Promise<void> {
 }
 
 async function cmdList(): Promise<void> {
-  const sessions = await listSessions();
+  const sessions = await listSessions(CLI_USER_ID);
   if (sessions.length === 0) {
     console.log("No sessions yet. Create one with: npm run lab -- new ...");
     return;
@@ -128,8 +130,9 @@ async function cmdList(): Promise<void> {
 }
 
 async function cmdShow(sessionId: string): Promise<void> {
-  const sessions = await listSessions();
-  const session = sessions.find((s) => s.id.startsWith(sessionId)) ?? (await loadSession(sessionId));
+  const sessions = await listSessions(CLI_USER_ID);
+  const session =
+    sessions.find((s) => s.id.startsWith(sessionId)) ?? (await loadSession(sessionId, CLI_USER_ID));
 
   if (!session) {
     console.error(`Session not found: ${sessionId}`);
@@ -140,7 +143,7 @@ async function cmdShow(sessionId: string): Promise<void> {
 }
 
 async function cmdStatus(): Promise<void> {
-  const progress = await loadProgress();
+  const progress = await loadProgress(CLI_USER_ID);
   const def = getLevelDefinition(progress.level);
   const next = xpToNextLevel(progress.totalXp);
 
@@ -162,16 +165,17 @@ async function cmdStatus(): Promise<void> {
 }
 
 async function cmdPrompt(workflow: WorkflowName, sessionId: string): Promise<void> {
-  const sessions = await listSessions();
-  const session = sessions.find((s) => s.id.startsWith(sessionId)) ?? (await loadSession(sessionId));
+  const sessions = await listSessions(CLI_USER_ID);
+  const session =
+    sessions.find((s) => s.id.startsWith(sessionId)) ?? (await loadSession(sessionId, CLI_USER_ID));
 
   if (!session) {
     console.error(`Session not found: ${sessionId}`);
     process.exit(1);
   }
 
-  const progress = await loadProgress();
-  const profile = workflow === "extract" ? null : await loadProfileOrExample();
+  const progress = await loadProgress(CLI_USER_ID);
+  const profile = workflow === "extract" ? null : await loadProfileOrExample(CLI_USER_ID);
   const userLevel = progress.level as TrustLevel;
 
   const gate = canPerformAction(userLevel, {
@@ -203,14 +207,14 @@ async function cmdPrompt(workflow: WorkflowName, sessionId: string): Promise<voi
 }
 
 async function cmdBootstrap(): Promise<void> {
-  const progress = await loadProgress();
+  const progress = await loadProgress(CLI_USER_ID);
   const updated = {
     ...progress,
     totalXp: Math.max(progress.totalXp, 250),
     level: 2 as TrustLevel,
     unlockedActions: getCumulativeActions(2),
   };
-  await saveProgress(updated);
+  await saveProgress(updated, CLI_USER_ID);
   console.log("\n✓ Bootstrapped to Level 2 (Drafter) for development");
   console.log(formatLevelBadge(2, getLevelDefinition(2).name));
 }
@@ -220,8 +224,9 @@ async function cmdComplete(
   sessionId: string,
   jsonPath: string
 ): Promise<void> {
-  const sessions = await listSessions();
-  const session = sessions.find((s) => s.id.startsWith(sessionId)) ?? (await loadSession(sessionId));
+  const sessions = await listSessions(CLI_USER_ID);
+  const session =
+    sessions.find((s) => s.id.startsWith(sessionId)) ?? (await loadSession(sessionId, CLI_USER_ID));
 
   if (!session) {
     console.error(`Session not found: ${sessionId}`);
@@ -239,11 +244,11 @@ async function cmdComplete(
   const { stage: _ignored, ...updateWithoutStage } = update;
 
   const merged = mergeSessionUpdate(session, updateWithoutStage);
-  const progress = await loadProgress();
+  const progress = await loadProgress(CLI_USER_ID);
   const result = applyStageCompletion(merged, progress, stageMap[stage]);
 
-  await saveSession(result.session);
-  await saveProgress(result.progress);
+  await saveSession({ ...result.session, userId: CLI_USER_ID }, CLI_USER_ID);
+  await saveProgress(result.progress, CLI_USER_ID);
 
   console.log(`\n✓ Session updated → stage: ${result.session.stage}`);
   if (result.xpAwarded > 0) {

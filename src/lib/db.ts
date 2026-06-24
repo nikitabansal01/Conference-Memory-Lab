@@ -41,6 +41,7 @@ export async function ensureSchema(): Promise<void> {
       await query`
         CREATE TABLE IF NOT EXISTS sessions (
           id TEXT PRIMARY KEY,
+          user_id TEXT,
           data JSONB NOT NULL,
           created_at TIMESTAMPTZ NOT NULL,
           updated_at TIMESTAMPTZ NOT NULL
@@ -53,36 +54,53 @@ export async function ensureSchema(): Promise<void> {
           updated_at TIMESTAMPTZ NOT NULL
         )
       `;
+      await query`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS user_id TEXT`;
+      await query`CREATE INDEX IF NOT EXISTS sessions_user_id_idx ON sessions (user_id)`;
     })();
   }
   await schemaReady;
 }
 
-export async function dbSaveSession(session: unknown, id: string, createdAt: string, updatedAt: string): Promise<void> {
+export async function dbSaveSession(
+  session: unknown,
+  id: string,
+  userId: string,
+  createdAt: string,
+  updatedAt: string
+): Promise<void> {
   await ensureSchema();
   const query = getSql();
   const payload = JSON.stringify(session);
   await query`
-    INSERT INTO sessions (id, data, created_at, updated_at)
-    VALUES (${id}, ${payload}::jsonb, ${createdAt}, ${updatedAt})
+    INSERT INTO sessions (id, user_id, data, created_at, updated_at)
+    VALUES (${id}, ${userId}, ${payload}::jsonb, ${createdAt}, ${updatedAt})
     ON CONFLICT (id) DO UPDATE SET
+      user_id = EXCLUDED.user_id,
       data = EXCLUDED.data,
       updated_at = EXCLUDED.updated_at
   `;
 }
 
-export async function dbLoadSession(id: string): Promise<unknown | null> {
+export async function dbLoadSession(id: string, userId: string): Promise<unknown | null> {
   await ensureSchema();
   const query = getSql();
-  const rows = await query`SELECT data FROM sessions WHERE id = ${id} LIMIT 1`;
+  const rows = await query`
+    SELECT data FROM sessions
+    WHERE id = ${id} AND user_id = ${userId}
+    LIMIT 1
+  `;
   if (!rows.length) return null;
   return rows[0].data;
 }
 
-export async function dbListSessions(): Promise<unknown[]> {
+export async function dbListSessions(userId: string): Promise<unknown[]> {
   await ensureSchema();
   const query = getSql();
-  const rows = await query`SELECT data FROM sessions ORDER BY updated_at DESC`;
+  const rows = await query`
+    SELECT data FROM sessions
+    WHERE user_id = ${userId}
+    ORDER BY updated_at DESC
+  `;
   return rows.map((row) => row.data);
 }
 
@@ -106,4 +124,8 @@ export async function dbSaveState(key: string, data: unknown): Promise<void> {
       data = EXCLUDED.data,
       updated_at = EXCLUDED.updated_at
   `;
+}
+
+export function userStateKey(kind: "progress" | "profile", userId: string): string {
+  return `${kind}:${userId}`;
 }

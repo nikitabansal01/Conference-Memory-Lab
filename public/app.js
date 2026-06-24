@@ -96,7 +96,7 @@ const WALKTHROUGH_STEPS = [
     title: "Level up your Memory & Networking Capacity",
     body:
       "Six levels unlock as you capture events, think through insights, and review drafts. You start at Level 1 — Observer — and earn deeper memory and networking help over time.",
-    target: "#sidebar-capacity",
+    target: "#capacity-card",
     showCapacityList: true,
     primary: { label: "Got it", action: "next" },
   },
@@ -131,6 +131,135 @@ let walkthroughLoopSub = 0;
 let walkthroughActive = false;
 let walkthroughPaused = false;
 let walkthroughTargetEl = null;
+let clerkInstance = null;
+let appConfig = null;
+
+async function getAuthHeaders(extraHeaders = {}) {
+  const headers = { ...extraHeaders };
+  if (clerkInstance?.session) {
+    const token = await clerkInstance.session.getToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+  }
+  return headers;
+}
+
+async function authFetch(url, options = {}) {
+  const headers = await getAuthHeaders(options.headers ?? {});
+  return fetch(url, { ...options, headers });
+}
+
+function waitForClerkScript() {
+  return new Promise((resolve, reject) => {
+    if (window.Clerk) {
+      resolve();
+      return;
+    }
+    let attempts = 0;
+    const timer = setInterval(() => {
+      if (window.Clerk) {
+        clearInterval(timer);
+        resolve();
+      } else if (++attempts > 120) {
+        clearInterval(timer);
+        reject(new Error("Sign-in failed to load. Refresh and try again."));
+      }
+    }, 50);
+  });
+}
+
+function showAuthGate() {
+  document.getElementById("auth-gate")?.classList.remove("hidden");
+  document.getElementById("app-shell")?.classList.add("hidden");
+}
+
+function hideAuthGate() {
+  document.getElementById("auth-gate")?.classList.add("hidden");
+  document.getElementById("app-shell")?.classList.remove("hidden");
+}
+
+async function signOut() {
+  if (clerkInstance?.signOut) {
+    await clerkInstance.signOut({ redirectUrl: window.location.origin });
+    return;
+  }
+  window.location.reload();
+}
+
+async function startApp() {
+  await loadDashboard();
+  if (wantsTour()) {
+    maybeStartWalkthrough(dashboardData, true);
+  }
+}
+
+async function boot() {
+  try {
+    const res = await fetch("/api/config");
+    appConfig = res.ok ? await res.json() : null;
+  } catch {
+    appConfig = null;
+  }
+
+  if (!appConfig) {
+    appConfig = {
+      clerkPublishableKey: null,
+      authRequired: window.location.hostname !== "localhost",
+    };
+  }
+
+  const publishableKey = appConfig?.clerkPublishableKey;
+  const authRequired = Boolean(appConfig?.authRequired);
+  const needsClerk = Boolean(publishableKey);
+
+  if (authRequired && !publishableKey) {
+    showAuthGate();
+    const signInEl = document.getElementById("clerk-sign-in");
+    if (signInEl) {
+      signInEl.innerHTML = `
+        <p class="auth-gate-message">
+          Sign-in is not configured yet. Add <code>CLERK_PUBLISHABLE_KEY</code> and
+          <code>CLERK_SECRET_KEY</code> in Vercel → Settings → Environment Variables, then redeploy.
+        </p>`;
+    }
+    return;
+  }
+
+  if (needsClerk) {
+    await waitForClerkScript();
+    await window.Clerk.load({ publishableKey });
+    clerkInstance = window.Clerk;
+
+    if (!clerkInstance.user) {
+      showAuthGate();
+      clerkInstance.addListener(({ user }) => {
+        if (user) {
+          hideAuthGate();
+          startApp().catch(handleBootError);
+        }
+      });
+      clerkInstance.mountSignIn(document.getElementById("clerk-sign-in"), {
+        afterSignInUrl: window.location.href,
+        afterSignUpUrl: window.location.href,
+        signUpUrl: window.location.href,
+      });
+      return;
+    }
+  }
+
+  hideAuthGate();
+  await startApp();
+}
+
+function handleBootError(err) {
+  dashboardData = buildFallbackDashboardData();
+  hideAuthGate();
+  renderHome();
+  if (wantsTour()) {
+    maybeStartWalkthrough(dashboardData, true);
+  } else {
+    showLoadError(err instanceof Error ? err.message : "Could not start the app");
+  }
+}
 
 const ACTION_STATUS = {
   complete_lens: { label: "Recommended", tone: "rec" },
@@ -181,8 +310,8 @@ function renderActionCategory(action) {
   return `<span class="action-category tone-${cat.tone}">${escapeHtml(cat.label)}</span>`;
 }
 
-async function fetchJson(url, options) {
-  const res = await fetch(url, options);
+async function fetchJson(url, options = {}) {
+  const res = await authFetch(url, options);
   const text = await res.text();
   let data;
   try {
@@ -285,8 +414,8 @@ function renderHome() {
   renderLatestEvent(d);
   renderContinueActions(d);
   renderLens(d.profile, d.lensImpact);
+  renderCapacityCard(d);
   renderLearningStreak(d);
-  renderSidebarCapacity(d);
   renderTimeline(d);
   renderBottomBanner();
   showMainView("home");
@@ -659,12 +788,33 @@ function timeGreeting() {
 function renderSidebarUser(d) {
   const p = d.progress;
   const el = document.getElementById("sidebar-user");
+  const clerkUser = clerkInstance?.user;
+  const displayName =
+    clerkUser?.firstName ||
+    clerkUser?.fullName ||
+    d.profile.name ||
+    "You";
+  const avatarLetter = String(displayName).charAt(0).toUpperCase() || "Y";
+  const avatarHtml = clerkUser?.imageUrl
+    ? `<img class="user-avatar user-avatar-img" src="${escapeHtml(clerkUser.imageUrl)}" alt="" />`
+    : `<div class="user-avatar" aria-hidden="true">${escapeHtml(avatarLetter)}</div>`;
+  const signOutHtml = clerkInstance
+    ? `<button type="button" class="btn-sign-out" id="btn-sign-out">Sign out</button>`
+    : "";
+
   el.innerHTML = `
-    <div class="user-avatar" aria-hidden="true">${escapeHtml(firstName(d.profile.name).charAt(0))}</div>
-    <div>
-      <strong>${escapeHtml(d.profile.name ?? "You")}</strong>
+    ${avatarHtml}
+    <div class="sidebar-user-meta">
+      <strong>${escapeHtml(displayName)}</strong>
       <span>Level ${p.level} · ${escapeHtml(p.levelName)}</span>
+      ${signOutHtml}
     </div>`;
+
+  document.getElementById("btn-sign-out")?.addEventListener("click", () => {
+    signOut().catch((err) => {
+      console.error("Sign out failed", err);
+    });
+  });
 }
 
 function buildHeroLead(d) {
@@ -960,65 +1110,25 @@ function buildLearningStreakClient(d) {
   return { activeDays, week };
 }
 
-function renderSidebarCapacity(d) {
-  const el = document.getElementById("sidebar-capacity");
+function renderCapacityCard(d) {
+  const el = document.getElementById("capacity-card");
   if (!el) return;
 
   const c = buildCapacitySidebarClient(d);
-  const arcLen = 157;
-  const dash = (arcLen * c.overallPct) / 100;
+  const meta = c.nextName
+    ? `${c.overallPct}% unlocked · Next: ${escapeHtml(c.nextName)} at ${c.unlockPct}%`
+    : `${c.overallPct}% · Full capacity unlocked`;
 
   el.innerHTML = `
-    <div class="sidebar-capacity-top">
-      <p class="sidebar-capacity-kicker">Your neural capacity</p>
-      <button type="button" class="capacity-info-btn" title="Levels unlock memory and networking capacity as you capture events, think through insights, and review drafts." aria-label="About neural capacity">i</button>
+    <div class="capacity-card-head">
+      <p class="section-kicker">Your capacity</p>
+      <button type="button" class="capacity-info-btn" title="Levels unlock memory and networking capacity as you capture events, think through insights, and review drafts." aria-label="About capacity">i</button>
     </div>
-    <p class="sidebar-capacity-level-num">Level ${c.displayLevel}</p>
-    <div class="capacity-arc-wrap">
-      <svg viewBox="0 0 120 64" class="capacity-arc" aria-hidden="true">
-        <path d="M 10 58 A 50 50 0 0 1 110 58" fill="none" stroke="#e7e5e4" stroke-width="8" stroke-linecap="round" />
-        <path d="M 10 58 A 50 50 0 0 1 110 58" fill="none" stroke="var(--accent)" stroke-width="8" stroke-linecap="round"
-          stroke-dasharray="${dash} ${arcLen}" />
-      </svg>
-      <div class="capacity-arc-center">
-        <span class="capacity-arc-value">${c.overallPct}%</span>
-        <span class="capacity-arc-caption">of Memory &amp; Networking Capacity Unlocked</span>
-      </div>
+    <h2 class="capacity-card-level">Level ${c.displayLevel} · ${escapeHtml(c.displayName)}</h2>
+    <div class="capacity-card-progress" role="progressbar" aria-valuenow="${c.overallPct}" aria-valuemin="0" aria-valuemax="100" aria-label="Capacity progress">
+      <div class="capacity-card-progress-fill" style="width: ${c.overallPct}%"></div>
     </div>
-    <div class="capacity-scale">
-      <div class="capacity-scale-track" aria-hidden="true">
-        <span class="capacity-scale-line"></span>
-        ${CAPACITY_DISPLAY.map((entry, index) => {
-          const left = CAPACITY_DISPLAY.length <= 1 ? 0 : (index / (CAPACITY_DISPLAY.length - 1)) * 100;
-          const on = c.ticks[index]?.unlocked;
-          return `<span class="capacity-scale-node${on ? " is-on" : ""}${c.ticks[index]?.current ? " is-current" : ""}" style="left:${left}%"></span>`;
-        }).join("")}
-      </div>
-      <div class="capacity-scale-labels">
-        ${c.ticks
-          .map(
-            (tick) =>
-              `<span class="capacity-level-tick${tick.unlocked ? " is-on" : ""}${tick.current ? " is-current" : ""}">${tick.label}</span>`
-          )
-          .join("")}
-      </div>
-    </div>
-    ${
-      c.nextName
-        ? `<div class="sidebar-capacity-next-block">
-            <p class="sidebar-capacity-next-title">Next: ${escapeHtml(c.nextName)}</p>
-            <p class="sidebar-capacity-next-sub">Unlocks at ${c.unlockPct}%</p>
-          </div>`
-        : `<div class="sidebar-capacity-next-block">
-            <p class="sidebar-capacity-next-title">Full capacity unlocked</p>
-          </div>`
-    }
-    <button type="button" class="sidebar-capacity-link" data-view-progress>View progress →</button>`;
-
-  el.querySelector("[data-view-progress]")?.addEventListener("click", () => {
-    handleNav("home");
-    document.getElementById("learning-streak-card")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  });
+    <p class="capacity-card-meta">${meta}</p>`;
 }
 
 function renderLearningStreak(d) {
@@ -2374,7 +2484,6 @@ async function ensureDashboardData() {
   window._allActions = dashboardData.allActions ?? dashboardData.actions;
   renderSidebarUser(dashboardData);
   renderSidebarEvents(dashboardData);
-  renderSidebarCapacity(dashboardData);
 }
 
 async function ensureHomeView() {
@@ -2514,7 +2623,7 @@ document.getElementById("form-event").addEventListener("submit", async (e) => {
     submitBtn.textContent = "Adding event…";
   }
 
-  const res = await fetch("/api/sessions", {
+  const res = await authFetch("/api/sessions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -2559,7 +2668,7 @@ document.getElementById("form-link").addEventListener("submit", async (e) => {
     submitBtn.disabled = true;
     submitBtn.textContent = "Reading event page…";
   }
-  const res = await fetch(`/api/sessions/${sessionId}`, {
+  const res = await authFetch(`/api/sessions/${sessionId}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ eventUrl: data.get("eventUrl") }),
@@ -2588,7 +2697,7 @@ document.getElementById("form-lens").addEventListener("submit", async (e) => {
   const data = new FormData(e.target);
   const errEl = document.getElementById("lens-error");
   errEl.classList.add("hidden");
-  const res = await fetch("/api/profile", {
+  const res = await authFetch("/api/profile", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -2689,12 +2798,4 @@ function showLoadError(message) {
   document.body.innerHTML = `<pre style="padding:24px">Failed: ${escapeHtml(message)}</pre>`;
 }
 
-loadDashboard().catch((err) => {
-  dashboardData = buildFallbackDashboardData();
-  renderHome();
-  if (wantsTour()) {
-    maybeStartWalkthrough(dashboardData, true);
-  } else {
-    showLoadError(err.message);
-  }
-});
+boot().catch(handleBootError);

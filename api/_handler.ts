@@ -1,10 +1,11 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { routeApi } from "../src/api/router.js";
+import { authenticateRequest, AuthError, isPublicApiPath } from "../src/lib/auth.js";
 
 function setCors(res: VercelResponse): void {
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 }
 
 export async function handleApiRoute(
@@ -20,7 +21,22 @@ export async function handleApiRoute(
   }
 
   try {
-    const result = await routeApi(req.method ?? "GET", pathname, req.body);
+    let auth;
+    if (!isPublicApiPath(pathname)) {
+      try {
+        const header = req.headers.authorization;
+        const authHeader = typeof header === "string" ? header : undefined;
+        auth = await authenticateRequest(authHeader);
+      } catch (err) {
+        if (err instanceof AuthError) {
+          res.status(err.status).json({ error: err.message });
+          return;
+        }
+        throw err;
+      }
+    }
+
+    const result = await routeApi(req.method ?? "GET", pathname, req.body, auth);
     const headers: Record<string, string> = {
       ...result.headers,
     };

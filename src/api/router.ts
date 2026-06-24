@@ -39,6 +39,8 @@ import {
   captureKindFromMime,
   MAX_CAPTURE_BYTES,
 } from "../lib/captures.js";
+import type { RequestAuth } from "../lib/auth.js";
+import { getClerkPublishableKey, isAuthConfigured } from "../lib/auth.js";
 
 const EVENT_TYPES: EventType[] = ["mixer", "panel", "conference", "webinar", "other"];
 
@@ -141,17 +143,17 @@ async function ensureEventEnrichment(session: EventSession, force = false): Prom
   };
 }
 
-async function handleDashboard(): Promise<ApiResult> {
-  const storedProgress = await loadProgress();
-  const sessions = await listSessions();
+async function handleDashboard(auth: RequestAuth): Promise<ApiResult> {
+  const storedProgress = await loadProgress(auth.userId);
+  const sessions = await listSessions(auth.userId);
   const normalized = normalizeOnboarding(storedProgress);
   let progress = normalized.progress;
   if (normalized.shouldPersist) {
-    await saveProgress(progress);
+    await saveProgress(progress, auth.userId);
   }
   const onboarding = normalized.onboarding;
   const hasUserEvents = sessions.length > 0;
-  const profile = await loadProfileOrExample();
+  const profile = await loadProfileOrExample(auth.userId);
   const resume = await loadResume();
   const levelDef = getLevelDefinition(progress.level);
   const next = xpToNextLevel(progress.totalXp);
@@ -249,10 +251,25 @@ async function handleDashboard(): Promise<ApiResult> {
 export async function routeApi(
   method: string,
   pathname: string,
-  rawBody?: unknown
+  rawBody?: unknown,
+  auth?: RequestAuth
 ): Promise<ApiResult> {
+  if (pathname === "/api/config" && method === "GET") {
+    return {
+      status: 200,
+      body: {
+        clerkPublishableKey: getClerkPublishableKey(),
+        authRequired: isAuthConfigured() || Boolean(process.env.VERCEL),
+      },
+    };
+  }
+
+  if (!auth) {
+    return { status: 401, body: { error: "Sign in required" } };
+  }
+
   if (pathname === "/api/dashboard" && method === "GET") {
-    return handleDashboard();
+    return handleDashboard(auth);
   }
 
   if (pathname === "/api/onboarding" && method === "PATCH") {
@@ -264,10 +281,10 @@ export async function routeApi(
       explicit: boolean;
     }>;
 
-    const progress = await loadProgress();
+    const progress = await loadProgress(auth.userId);
     const onboarding = mergeOnboardingState(progress.onboarding, body);
     const updated = { ...progress, onboarding };
-    await saveProgress(updated);
+    await saveProgress(updated, auth.userId);
 
     return {
       status: 200,
@@ -279,13 +296,13 @@ export async function routeApi(
   }
 
   if (pathname === "/api/profile" && method === "GET") {
-    const profile = await loadProfileOrExample();
+    const profile = await loadProfileOrExample(auth.userId);
     return { status: 200, body: profile };
   }
 
   if (pathname === "/api/profile" && method === "PUT") {
     const body = parseRequestBody(rawBody) as Partial<ExpertiseProfile>;
-    const existing = await loadProfileOrExample();
+    const existing = await loadProfileOrExample(auth.userId);
     const updated: ExpertiseProfile = {
       ...existing,
       ...body,
@@ -296,7 +313,7 @@ export async function routeApi(
     if (!updated.name?.trim()) {
       return { status: 400, body: { error: "Name is required" } };
     }
-    await saveProfile(updated);
+    await saveProfile(updated, auth.userId);
     const resume = await loadResume();
     return {
       status: 200,
@@ -312,7 +329,7 @@ export async function routeApi(
 
     const eventUrl = parseEventUrl(body.eventUrl)!.url;
     const enrichment = await enrichEventFromUrl(eventUrl);
-    const profile = await loadProfileOrExample();
+    const profile = await loadProfileOrExample(auth.userId);
 
     if (!enrichment) {
       return {
@@ -343,7 +360,7 @@ export async function routeApi(
   }
 
   if (pathname === "/api/sessions" && method === "GET") {
-    return { status: 200, body: await listSessions() };
+    return { status: 200, body: await listSessions(auth.userId) };
   }
 
   if (pathname === "/api/sessions" && method === "POST") {
@@ -383,7 +400,7 @@ export async function routeApi(
       return { status: 400, body: { error: "Invalid event type" } };
     }
 
-    const progress = await loadProgress();
+    const progress = await loadProgress(auth.userId);
     let updatedProgress = progress;
 
     let enrichment = null;
@@ -404,17 +421,17 @@ export async function routeApi(
     });
     updatedProgress = updated;
     let savedSession: EventSession = enrichment
-      ? { ...session, eventEnrichment: enrichment }
-      : session;
+      ? { ...session, eventEnrichment: enrichment, userId: auth.userId }
+      : { ...session, userId: auth.userId };
 
     if (body.attendanceIntent?.trim()) {
       savedSession = { ...savedSession, attendanceIntent: body.attendanceIntent.trim() };
     }
 
-    await saveSession(savedSession);
-    await saveProgress(updatedProgress);
+    await saveSession(savedSession, auth.userId);
+    await saveProgress(updatedProgress, auth.userId);
 
-    const profile = await loadProfileOrExample();
+    const profile = await loadProfileOrExample(auth.userId);
     const intentSuggestions = savedSession.eventEnrichment
       ? buildEventIntentSuggestions(savedSession.eventEnrichment, profile)
       : [];
@@ -437,8 +454,8 @@ export async function routeApi(
       return { status: 404, body: { error: "Not found" } };
     }
 
-    const session = await resolveSession(id);
-    if (!session) {
+    const session = await resolveSession(id, auth.userId);
+    if (!session || (session.userId && session.userId !== auth.userId)) {
       return { status: 404, body: { error: "Session not found" } };
     }
 
@@ -460,6 +477,7 @@ export async function routeApi(
 
     const updated: EventSession = {
       ...session,
+      userId: auth.userId,
       updatedAt: new Date().toISOString(),
     };
 
@@ -484,14 +502,14 @@ export async function routeApi(
       updated.attendanceIntent = String(body.attendanceIntent ?? "").trim();
     }
 
-    await saveSession(updated);
+    await saveSession(updated, auth.userId);
     let savedSession = updated;
     if (hasEventUrl) {
       savedSession = applyEnrichmentTitle(await ensureEventEnrichment(updated, true));
-      await saveSession(savedSession);
+      await saveSession(savedSession, auth.userId);
     }
 
-    const profile = await loadProfileOrExample();
+    const profile = await loadProfileOrExample(auth.userId);
     const preview = buildEventPreview(savedSession);
     const intentSuggestions = savedSession.eventEnrichment
       ? buildEventIntentSuggestions(savedSession.eventEnrichment, profile)
@@ -515,8 +533,8 @@ export async function routeApi(
   const capturePathMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/captures\/([^/]+)$/);
   if (capturePathMatch) {
     const [, sessionId, captureRef] = capturePathMatch;
-    const session = await resolveSession(sessionId);
-    if (!session) {
+    const session = await resolveSession(sessionId, auth.userId);
+    if (!session || (session.userId && session.userId !== auth.userId)) {
       return { status: 404, body: { error: "Session not found" } };
     }
 
@@ -562,7 +580,7 @@ export async function routeApi(
         ),
         updatedAt: new Date().toISOString(),
       };
-      await saveSession(updated);
+      await saveSession(updated, auth.userId);
       return {
         status: 200,
         body: {
@@ -579,8 +597,8 @@ export async function routeApi(
   const capturePostMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/captures$/);
   if (capturePostMatch && method === "POST") {
     const sessionId = capturePostMatch[1];
-    const session = await resolveSession(sessionId);
-    if (!session) {
+    const session = await resolveSession(sessionId, auth.userId);
+    if (!session || (session.userId && session.userId !== auth.userId)) {
       return { status: 404, body: { error: "Session not found" } };
     }
 
@@ -615,7 +633,7 @@ export async function routeApi(
     }
 
     try {
-      const capture = await saveCaptureFile(session.id, file, {
+      const capture = await saveCaptureFile(session.id, auth.userId, file, {
         filename: body.filename.trim(),
         mimeType: body.mimeType.trim(),
         kind,
@@ -631,11 +649,12 @@ export async function routeApi(
 
       const updated: EventSession = {
         ...session,
+        userId: auth.userId,
         captures: [...(session.captures ?? []), capture],
         screenshotDescriptions: descriptions,
         updatedAt: new Date().toISOString(),
       };
-      await saveSession(updated);
+      await saveSession(updated, auth.userId);
 
       return {
         status: 201,
@@ -659,8 +678,8 @@ export async function routeApi(
     if (!id) {
       return { status: 400, body: { error: "Session id required" } };
     }
-    const session = await resolveSession(id);
-    if (!session) {
+    const session = await resolveSession(id, auth.userId);
+    if (!session || (session.userId && session.userId !== auth.userId)) {
       return { status: 404, body: { error: "Session not found" } };
     }
     if (!session.eventUrl) {
@@ -668,9 +687,9 @@ export async function routeApi(
     }
 
     const enriched = applyEnrichmentTitle(await ensureEventEnrichment(session, true));
-    await saveSession(enriched);
+    await saveSession(enriched, auth.userId);
     const preview = buildEventPreview(enriched);
-    const profile = await loadProfileOrExample();
+    const profile = await loadProfileOrExample(auth.userId);
     const intentSuggestions = enriched.eventEnrichment
       ? buildEventIntentSuggestions(enriched.eventEnrichment, profile)
       : [];
@@ -694,11 +713,11 @@ export async function routeApi(
     if (id.includes("/")) {
       return { status: 404, body: { error: "Not found" } };
     }
-    const session = await resolveSession(id);
-    if (!session) {
+    const session = await resolveSession(id, auth.userId);
+    if (!session || (session.userId && session.userId !== auth.userId)) {
       return { status: 404, body: { error: "Session not found" } };
     }
-    const profile = await loadProfileOrExample();
+    const profile = await loadProfileOrExample(auth.userId);
     return {
       status: 200,
       body: {

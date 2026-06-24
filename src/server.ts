@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join, extname } from "node:path";
 import { routeApi } from "./api/router.js";
 import { ROOT } from "./lib/storage.js";
+import { authenticateRequest, AuthError, isPublicApiPath } from "./lib/auth.js";
 
 const PORT = Number(process.env.PORT ?? 3000);
 const PUBLIC_DIR = join(ROOT, "public");
@@ -40,7 +41,7 @@ const server = createServer(async (req, res) => {
 
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
   if (req.method === "OPTIONS") {
     res.writeHead(204);
@@ -49,28 +50,49 @@ const server = createServer(async (req, res) => {
   }
 
   if (pathname.startsWith("/api/")) {
-    const body = req.method !== "GET" && req.method !== "HEAD" ? await readBody(req) : undefined;
-    const result = await routeApi(req.method ?? "GET", pathname, body);
-    const headers: Record<string, string> = { ...result.headers };
-
-    if (result.status >= 300 && result.status < 400 && result.headers?.Location) {
-      res.writeHead(result.status, headers);
-      res.end();
-      return;
-    }
-
-    if (result.raw) {
-      if (result.headers?.["Content-Type"]) {
-        headers["Content-Type"] = result.headers["Content-Type"];
+    try {
+      let auth;
+      if (!isPublicApiPath(pathname)) {
+        try {
+          const authHeader = req.headers.authorization;
+          auth = await authenticateRequest(typeof authHeader === "string" ? authHeader : undefined);
+        } catch (err) {
+          if (err instanceof AuthError) {
+            res.writeHead(err.status, { "Content-Type": "application/json; charset=utf-8" });
+            res.end(JSON.stringify({ error: err.message }));
+            return;
+          }
+          throw err;
+        }
       }
-      res.writeHead(result.status, headers);
-      res.end(result.raw);
-      return;
-    }
 
-    headers["Content-Type"] = "application/json; charset=utf-8";
-    res.writeHead(result.status, headers);
-    res.end(JSON.stringify(result.body));
+      const body = req.method !== "GET" && req.method !== "HEAD" ? await readBody(req) : undefined;
+      const result = await routeApi(req.method ?? "GET", pathname, body, auth);
+      const headers: Record<string, string> = { ...result.headers };
+
+      if (result.status >= 300 && result.status < 400 && result.headers?.Location) {
+        res.writeHead(result.status, headers);
+        res.end();
+        return;
+      }
+
+      if (result.raw) {
+        if (result.headers?.["Content-Type"]) {
+          headers["Content-Type"] = result.headers["Content-Type"];
+        }
+        res.writeHead(result.status, headers);
+        res.end(result.raw);
+        return;
+      }
+
+      headers["Content-Type"] = "application/json; charset=utf-8";
+      res.writeHead(result.status, headers);
+      res.end(JSON.stringify(result.body));
+    } catch (err) {
+      console.error(`API error [${pathname}]:`, err);
+      res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
+      res.end(JSON.stringify({ error: err instanceof Error ? err.message : "Internal server error" }));
+    }
     return;
   }
 

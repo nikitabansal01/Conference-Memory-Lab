@@ -10,6 +10,20 @@
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
+  <div id="auth-gate" class="auth-gate hidden">
+    <div class="auth-gate-card">
+      <div class="auth-gate-brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <div>
+          <strong>Conference Memory Lab</strong>
+          <span class="brand-tag">Sign in to your workspace</span>
+        </div>
+      </div>
+      <div id="clerk-sign-in"></div>
+    </div>
+  </div>
+
+  <div id="app-shell" class="hidden">
   <div class="app-layout">
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-header">
@@ -42,7 +56,6 @@
         <button type="button" class="nav-item nav-muted" data-nav="lens">Your Unique Lens</button>
         <button type="button" class="nav-item nav-muted" data-nav="connections">Connections</button>
         <button type="button" class="nav-item nav-muted" data-nav="help">Help</button>
-        <div class="sidebar-capacity" id="sidebar-capacity"></div>
         <div class="sidebar-user" id="sidebar-user"></div>
       </div>
     </aside>
@@ -64,6 +77,7 @@
             <section class="memory-timeline-section" id="memory-timeline"></section>
           </div>
           <aside class="dashboard-rail">
+            <section class="card capacity-card" id="capacity-card"></section>
             <section class="card lens-card" id="lens-card"></section>
             <section class="card streak-card" id="learning-streak-card"></section>
           </aside>
@@ -265,6 +279,15 @@
     </div>
   </div>
 
+  </div>
+
+  <script
+    async
+    crossorigin="anonymous"
+    data-clerk-publishable-key=""
+    src="https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js"
+    type="text/javascript"
+  ></script>
   <script src="/app.js"></script>
   <script>
     window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };

@@ -24,6 +24,7 @@ export function captureKindFromMime(mimeType: string): CaptureKind | null {
 
 export async function saveCaptureFile(
   sessionId: string,
+  userId: string,
   file: Buffer,
   meta: { filename: string; mimeType: string; kind: CaptureKind; caption?: string }
 ): Promise<CaptureFile> {
@@ -36,7 +37,7 @@ export async function saveCaptureFile(
   const storedName = `${id}${ext}`;
 
   if (hasBlobStorage()) {
-    const pathname = `captures/${sessionId}/${storedName}`;
+    const pathname = `captures/${userId}/${sessionId}/${storedName}`;
     const blob = await put(pathname, file, {
       access: "public",
       contentType: meta.mimeType,
