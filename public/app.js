@@ -2301,14 +2301,14 @@ function renderAttend(session) {
 
     ${hasExtracted ? `
     <details class="attend-extracted" open>
-      <summary>Extracted memory (${people.length} people, ${claims.length} claims)</summary>
+      <summary>Extracted memory (${people.length} people, ${claims.length} key takeaways)</summary>
       <div class="grid-2" style="margin-top:14px">
         <div>
           <h3>People</h3>
           ${people.length ? people.map((p) => `<div class="entity"><strong>${escapeHtml(p.name)}</strong><span class="muted"> · ${escapeHtml(p.role)}</span></div>`).join("") : '<p class="empty">No people extracted yet.</p>'}
         </div>
         <div>
-          <h3>Claims</h3>
+          <h3>Key takeaways</h3>
           ${
             claims.length
               ? claims
@@ -2318,7 +2318,7 @@ function renderAttend(session) {
                       `<div class="claim${c.text.includes("[non-obvious]") ? " non-obvious" : ""}"><div>${escapeHtml(formatClaimText(c.text))}</div></div>`
                   )
                   .join("")
-              : `<p class="empty">No claim text yet.${missingClaimText ? ` ${missingClaimText} claim${missingClaimText === 1 ? "" : "s"} came back without text — add notes and re-run Remember.` : ""}</p>`
+              : `<p class="empty">No takeaway text yet.${missingClaimText ? ` ${missingClaimText} takeaway${missingClaimText === 1 ? "" : "s"} came back without text — add notes and re-run Remember.` : ""}</p>`
           }
         </div>
       </div>
@@ -2326,7 +2326,7 @@ function renderAttend(session) {
     <div class="workflow-actions">
       <button type="button" class="btn btn-primary" id="btn-run-remember">${rememberLabel}</button>
       <span class="workflow-status" id="remember-status" aria-live="polite"></span>
-      <p class="field-hint">${hasExtracted ? "Re-extract people, claims, and themes from your notes." : "Extract people, claims, and themes from your notes."}</p>
+      <p class="field-hint">${hasExtracted ? "Re-extract people, key takeaways, and themes from your notes." : "Extract people, key takeaways, and themes from your notes."}</p>
     </div>`;
 }
 
@@ -2529,6 +2529,10 @@ function bindThinkPanel(session) {
 
   if (session.isSample) {
     panel.querySelector("#btn-run-think")?.setAttribute("disabled", "true");
+    panel.querySelector("#btn-save-think")?.setAttribute("disabled", "true");
+    panel.querySelectorAll("#panel-think textarea, #panel-think input").forEach((el) => {
+      el.setAttribute("readonly", "readonly");
+    });
     return;
   }
 
@@ -2536,15 +2540,80 @@ function bindThinkPanel(session) {
     const statusEl = panel.querySelector("#think-status");
     await runSessionWorkflow(session.id, "synthesize", statusEl);
   });
+
+  async function saveThinkEdits() {
+    const statusEl = panel.querySelector("#think-save-status");
+    const matteredLine = panel.querySelector("#think-mattered-line")?.value ?? "";
+
+    const assumptionChallenges = (session.assumptionChallenges ?? []).map((challenge, i) => {
+      const block = panel.querySelector(`[data-challenge-idx="${i}"]`);
+      if (!block) return challenge;
+      return {
+        ...challenge,
+        question: block.querySelector('[data-field="question"]')?.value ?? challenge.question,
+        intent: block.querySelector('[data-field="intent"]')?.value ?? challenge.intent,
+      };
+    });
+
+    const themes = (session.themes ?? []).map((theme, i) => {
+      const block = panel.querySelector(`[data-theme-idx="${i}"]`);
+      if (!block) return theme;
+      return {
+        ...theme,
+        label: block.querySelector('[data-field="label"]')?.value ?? theme.label,
+        profileConnection:
+          block.querySelector('[data-field="profileConnection"]')?.value ??
+          theme.profileConnection ??
+          "",
+      };
+    });
+
+    const contentAngles = (session.contentAngles ?? []).map((angle, i) => {
+      const block = panel.querySelector(`[data-angle-idx="${i}"]`);
+      if (!block) return angle;
+      return {
+        ...angle,
+        title: block.querySelector('[data-field="title"]')?.value ?? angle.title,
+        nonObviousInsight:
+          block.querySelector('[data-field="nonObviousInsight"]')?.value ?? angle.nonObviousInsight,
+      };
+    });
+
+    if (statusEl) statusEl.textContent = "Saving…";
+    try {
+      const data = await fetchJson(`/api/sessions/${session.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          matteredLine,
+          assumptionChallenges,
+          themes,
+          contentAngles,
+        }),
+      });
+      currentSession = data.session;
+      if (statusEl) {
+        statusEl.textContent = "Saved";
+        setTimeout(() => {
+          if (statusEl.textContent === "Saved") statusEl.textContent = "";
+        }, 2000);
+      }
+    } catch (err) {
+      if (statusEl) statusEl.textContent = err.message ?? "Save failed";
+    }
+  }
+
+  panel.querySelector("#btn-save-think")?.addEventListener("click", saveThinkEdits);
 }
 
 function renderThink(session) {
   const challenges = session.assumptionChallenges ?? [];
   const themes = session.themes ?? [];
   const angles = session.contentAngles ?? [];
-  const canRun = session.stage === "extracted" || challenges.length > 0 || themes.some((t) => t.profileConnection);
   const showRun = session.stage === "ingested" || session.stage === "extracted";
   const runLabel = session.stage === "extracted" ? "Run Think" : "Run Remember first";
+  const matteredValue = session.matteredLine?.trim() || getMatteredLine(session);
+
   return `
     ${showRun ? `
     <div class="workflow-actions think-actions">
@@ -2553,15 +2622,75 @@ function renderThink(session) {
       ${session.stage === "ingested" ? '<p class="field-hint">Complete Remember on the Attend tab first.</p>' : ""}
     </div>` : ""}
     <section class="think-hero">
-      <h3>What mattered for you</h3>
-      <p class="matter-line">${escapeHtml(getMatteredLine(session))}</p>
+      <label class="field think-field">
+        <span>What mattered for you</span>
+        <textarea id="think-mattered-line" rows="2" placeholder="The single insight you want to carry forward">${escapeHtml(matteredValue)}</textarea>
+      </label>
     </section>
     <h3>Think deeper</h3>
-    ${challenges.map((c) => `<div class="entity"><strong>${escapeHtml(c.question)}</strong><p>${escapeHtml(c.intent)}</p></div>`).join("") || '<p class="empty">Assumption challenges appear after Think runs.</p>'}
+    ${
+      challenges.length
+        ? challenges
+            .map(
+              (c, i) => `
+      <div class="think-edit-block" data-challenge-idx="${i}">
+        <label class="field think-field">
+          <span>Question</span>
+          <textarea data-field="question" rows="2">${escapeHtml(c.question)}</textarea>
+        </label>
+        <label class="field think-field">
+          <span>Why it matters</span>
+          <textarea data-field="intent" rows="2">${escapeHtml(c.intent)}</textarea>
+        </label>
+      </div>`
+            )
+            .join("")
+        : '<p class="empty">Assumption challenges appear after Think runs — or add your own notes above.</p>'
+    }
     <h3 style="margin-top:20px">Apply to your work</h3>
-    ${themes.filter((t) => t.profileConnection).map((t) => `<div class="entity"><strong>${escapeHtml(t.label)}</strong><p>${escapeHtml(t.profileConnection)}</p></div>`).join("") || (canRun ? "" : '<p class="empty">Profile connections appear after Think runs.</p>')}
+    ${
+      themes.length
+        ? themes
+            .map(
+              (t, i) => `
+      <div class="think-edit-block" data-theme-idx="${i}">
+        <label class="field think-field">
+          <span>Theme</span>
+          <input type="text" data-field="label" value="${escapeHtml(t.label)}" />
+        </label>
+        <label class="field think-field">
+          <span>How this connects to your work</span>
+          <textarea data-field="profileConnection" rows="2" placeholder="One sentence on how this relates to your expertise">${escapeHtml(t.profileConnection ?? "")}</textarea>
+        </label>
+      </div>`
+            )
+            .join("")
+        : '<p class="empty">Themes from Remember appear here once extracted.</p>'
+    }
     <h3 style="margin-top:20px">Angles</h3>
-    ${angles.map((a) => `<div class="entity"><strong>${escapeHtml(a.title)}</strong><p>${escapeHtml(a.nonObviousInsight)}</p></div>`).join("")}`;
+    ${
+      angles.length
+        ? angles
+            .map(
+              (a, i) => `
+      <div class="think-edit-block" data-angle-idx="${i}">
+        <label class="field think-field">
+          <span>Angle</span>
+          <input type="text" data-field="title" value="${escapeHtml(a.title)}" />
+        </label>
+        <label class="field think-field">
+          <span>Non-obvious insight</span>
+          <textarea data-field="nonObviousInsight" rows="3">${escapeHtml(a.nonObviousInsight)}</textarea>
+        </label>
+      </div>`
+            )
+            .join("")
+        : '<p class="empty">Content angles appear after Think or Create runs.</p>'
+    }
+    <div class="think-save-row">
+      <button type="button" class="btn btn-secondary" id="btn-save-think">Save edits</button>
+      <span class="workflow-status" id="think-save-status" aria-live="polite"></span>
+    </div>`;
 }
 
 function renderCreate(session) {
@@ -2888,6 +3017,8 @@ function formatClaimText(text) {
 }
 
 function getMatteredLine(session) {
+  const custom = session.matteredLine?.trim();
+  if (custom) return custom;
   const claim = session.claims?.find((c) => resolveClaimText(c).includes("[non-obvious]"));
   const text = claim ? resolveClaimText(claim) : "";
   if (text) return formatClaimText(text);

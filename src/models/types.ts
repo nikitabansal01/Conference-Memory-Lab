@@ -168,6 +168,7 @@ export interface EventSession {
   followUpDrafts: FollowUpDraft[];
   contentDrafts: ContentDraft[];
   evalScores?: EvalScores;
+  matteredLine?: string;
   xpEarned: number;
 }
 

@@ -18,7 +18,7 @@ import {
   getCumulativeActions,
 } from "../trust/levels.js";
 import { formatLevelBadge } from "../gamification/xp.js";
-import type { EventSession, EventType, ExpertiseProfile, TrustLevel } from "../models/types.js";
+import type { EventSession, EventType, ExpertiseProfile, TrustLevel, AssumptionChallenge, Theme, ContentAngle } from "../models/types.js";
 import { createSession, applyEnrichmentTitle, resolveSessionTitle, titleFromEnrichment } from "../lib/session.js";
 import { getProfileStatus } from "../lib/profile-status.js";
 import { buildActionItems, buildAllActionItems, buildSessionActionItems, capabilitiesUnlocked, eventLinkNudge, sessionLoopLabel, sessionNextTab } from "../lib/actions.js";
@@ -55,6 +55,7 @@ export interface ApiResult {
 }
 
 function getBiggestIdea(session: EventSession): string | null {
+  if (session.matteredLine?.trim()) return session.matteredLine.trim();
   const nonObvious = session.claims.find((c) => c.text?.includes("[non-obvious]"));
   if (nonObvious?.text) return nonObvious.text.replace(/\[non-obvious\]\s*/i, "");
   if (session.themes[0]) return session.themes[0].label;
@@ -108,6 +109,64 @@ function parseRequestBody(body: unknown): Record<string, unknown> {
   }
   if (typeof body === "object") return body as Record<string, unknown>;
   return {};
+}
+
+function parseAssumptionChallenges(raw: unknown): AssumptionChallenge[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  return raw.map((item) => {
+    const record = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+    return {
+      question: String(record.question ?? ""),
+      intent: String(record.intent ?? ""),
+      relatedClaimIds: Array.isArray(record.relatedClaimIds)
+        ? record.relatedClaimIds.map(String)
+        : [],
+    };
+  });
+}
+
+function parseThemes(raw: unknown): Theme[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  return raw.map((item, i) => {
+    const record = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+    const relation = record.relation;
+    return {
+      id: typeof record.id === "string" && record.id ? record.id : `theme-${i + 1}`,
+      label: String(record.label ?? ""),
+      claimIds: Array.isArray(record.claimIds) ? record.claimIds.map(String) : [],
+      ...(relation === "reinforces" ||
+      relation === "extends" ||
+      relation === "contradicts" ||
+      relation === "new"
+        ? { relation }
+        : {}),
+      ...(typeof record.profileConnection === "string"
+        ? { profileConnection: record.profileConnection }
+        : {}),
+    };
+  });
+}
+
+function parseContentAngles(raw: unknown): ContentAngle[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  return raw.map((item, i) => {
+    const record = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+    return {
+      id: typeof record.id === "string" && record.id ? record.id : `angle-${i + 1}`,
+      title: String(record.title ?? ""),
+      hook: String(record.hook ?? ""),
+      nonObviousInsight: String(record.nonObviousInsight ?? ""),
+      rationale: String(record.rationale ?? ""),
+      expertiseLens: Array.isArray(record.expertiseLens) ? record.expertiseLens.map(String) : [],
+      platforms: Array.isArray(record.platforms)
+        ? (record.platforms.filter((p) =>
+            ["linkedin", "twitter", "newsletter", "blog", "substack", "medium"].includes(String(p))
+          ) as ContentAngle["platforms"])
+        : [],
+      predictedAudience: String(record.predictedAudience ?? ""),
+      claimIds: Array.isArray(record.claimIds) ? record.claimIds.map(String) : [],
+    };
+  });
 }
 
 async function enrichEventFromUrl(eventUrl: string) {
@@ -469,14 +528,27 @@ export async function routeApi(
       rawNotes?: string;
       screenshotDescriptions?: string[];
       attendanceIntent?: string;
+      matteredLine?: string;
+      assumptionChallenges?: unknown;
+      themes?: unknown;
+      contentAngles?: unknown;
     };
 
     const hasEventUrl = body.eventUrl !== undefined;
     const hasNotes = body.rawNotes !== undefined;
     const hasScreenshots = body.screenshotDescriptions !== undefined;
     const hasIntent = body.attendanceIntent !== undefined;
+    const hasMatteredLine = body.matteredLine !== undefined;
+    const parsedChallenges = parseAssumptionChallenges(body.assumptionChallenges);
+    const parsedThemes = parseThemes(body.themes);
+    const parsedAngles = parseContentAngles(body.contentAngles);
+    const hasThinkEdits =
+      hasMatteredLine ||
+      parsedChallenges !== undefined ||
+      parsedThemes !== undefined ||
+      parsedAngles !== undefined;
 
-    if (!hasEventUrl && !hasNotes && !hasScreenshots && !hasIntent) {
+    if (!hasEventUrl && !hasNotes && !hasScreenshots && !hasIntent && !hasThinkEdits) {
       return { status: 400, body: { error: "No valid fields to update" } };
     }
 
@@ -505,6 +577,24 @@ export async function routeApi(
 
     if (hasIntent) {
       updated.attendanceIntent = String(body.attendanceIntent ?? "").trim();
+    }
+
+    if (hasMatteredLine) {
+      const line = String(body.matteredLine ?? "").trim();
+      if (line) updated.matteredLine = line;
+      else delete updated.matteredLine;
+    }
+
+    if (parsedChallenges !== undefined) {
+      updated.assumptionChallenges = parsedChallenges;
+    }
+
+    if (parsedThemes !== undefined) {
+      updated.themes = parsedThemes;
+    }
+
+    if (parsedAngles !== undefined) {
+      updated.contentAngles = parsedAngles;
     }
 
     await saveSession(updated, auth.userId);
