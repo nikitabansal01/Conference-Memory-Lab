@@ -232,36 +232,51 @@ async function signOut() {
   window.location.reload();
 }
 
-function isSignUpRoute() {
+function showAuthLoading(message = "Loading sign-in…") {
+  showAuthGate();
+  const el = document.getElementById("clerk-sign-in");
+  if (el) {
+    el.innerHTML = `<p class="auth-gate-message">${escapeHtml(message)}</p>`;
+  }
+}
+
+function normalizeAuthRoute() {
   const path = window.location.pathname.replace(/\/$/, "") || "/";
-  const hash = window.location.hash.replace(/^#/, "");
-  return path === "/sign-up" || hash === "/sign-up" || hash === "sign-up";
+  if (path === "/sign-up") {
+    window.history.replaceState(null, "", "/?mode=signup");
+    return;
+  }
+  if (path === "/sign-in") {
+    window.history.replaceState(null, "", "/?mode=signin");
+  }
+}
+
+function isSignUpMode() {
+  const mode = new URLSearchParams(window.location.search).get("mode");
+  return mode === "signup";
 }
 
 function mountClerkAuthForms() {
   const el = document.getElementById("clerk-sign-in");
   if (!el || !clerkInstance) return;
 
-  const homeUrl = `${window.location.origin}/`;
-  const pathOptions = {
-    routing: "path",
-    signInUrl: "/sign-in",
-    signUpUrl: "/sign-up",
+  const origin = window.location.origin;
+  const homeUrl = `${origin}/`;
+  const signInUrl = `${origin}/?mode=signin`;
+  const signUpUrl = `${origin}/?mode=signup`;
+  const sharedOptions = {
+    signInUrl,
+    signUpUrl,
     afterSignInUrl: homeUrl,
     afterSignUpUrl: homeUrl,
   };
 
-  const renderAuthView = () => {
-    el.innerHTML = "";
-    if (isSignUpRoute()) {
-      clerkInstance.mountSignUp(el, pathOptions);
-    } else {
-      clerkInstance.mountSignIn(el, pathOptions);
-    }
-  };
-
-  renderAuthView();
-  window.addEventListener("popstate", renderAuthView);
+  el.innerHTML = "";
+  if (isSignUpMode()) {
+    clerkInstance.mountSignUp(el, sharedOptions);
+  } else {
+    clerkInstance.mountSignIn(el, sharedOptions);
+  }
 }
 
 async function startApp() {
@@ -272,6 +287,8 @@ async function startApp() {
 }
 
 async function boot() {
+  normalizeAuthRoute();
+
   try {
     const res = await fetch("/api/config");
     appConfig = res.ok ? await res.json() : null;
@@ -316,7 +333,7 @@ async function boot() {
 
   if (needsClerk) {
     try {
-      showAuthGate();
+      showAuthLoading();
       clerkInstance = await loadClerkJs(publishableKey);
 
       if (!clerkInstance.user) {
