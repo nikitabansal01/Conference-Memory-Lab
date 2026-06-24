@@ -36,18 +36,17 @@ Capabilities unlock as you use the product — draft review before publish, inte
 | **L5** | Networker | Event link parsing, connection drafts |
 | **L6** | Autopilot | Multi-platform schedule, audit log |
 
-See [specs/architecture-and-roadmap.md](specs/architecture-and-roadmap.md) for architecture, tech stack, and MVP/P0–P4 priorities. See [specs/product-direction.md](specs/product-direction.md) for UI/UX direction.
+See [specs/architecture-and-roadmap.md](specs/architecture-and-roadmap.md) for **v0/v1** architecture, tech stack, and roadmap. See [specs/product-direction.md](specs/product-direction.md) for UX direction and the shipped vs next-milestone product scope.
 
 ## Quick start
 
 ```bash
 npm install
 cp profile/profile.example.json profile/profile.json
+cp .env.example .env   # add OPENAI_API_KEY for in-app Remember / Think / Create / Review
 
 npm run dev
 # → http://localhost:3000
-
-npm run lab -- new --title "Your Event" --type mixer --notes notes.md
 ```
 
 ## Project structure

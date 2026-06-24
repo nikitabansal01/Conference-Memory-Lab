@@ -1,51 +1,87 @@
 # Architecture & Roadmap — Conference Memory Lab
 
-A single reference for **how the system is built**, **what it runs on**, and **how work is prioritized** (MVP, P0, P1, …) from an AI product manager lens.
+A single reference for **how the system is built**, **what runs where**, and **how work is prioritized** — written from an **AI product manager** lens.
+
+Use this doc to answer: *What did v0 prove? What does v1 need to prove? What ships next, and why?*
 
 ---
 
-## What this product is
+## Product thesis (AI PM framing)
 
-**Conference Memory Lab** is a **thought partner workspace** that turns networking event notes into **action** — what mattered, what to think deeper about, and what to do next.
+**Conference Memory Lab** is not a summarizer. It is a **trust-gated thought partner** that turns messy event inputs into **grounded memory → lens-aware thinking → reviewable action**.
 
-It is **not** a notes dashboard. It is an **interaction memory system** with:
+| Layer | Job | AI role |
+|-------|-----|---------|
+| **Memory** | Who was there, what was said, what stood out | Extract & structure — high grounding bar |
+| **Thought partner** | What mattered *for this user*, what to challenge | Synthesize against profile — non-obvious over recap |
+| **Action** | Drafts, follow-ups, exports | Generate — only after human has earned trust |
+| **Quality loop** | Eval + edit + approve | Human judgment trains the system |
 
-- A structured memory graph (people, claims, themes)
-- Profile-aware synthesis (“Your Lens”)
-- Draft generation with visible reasoning and eval scores
-- A **trust ladder** that unlocks capabilities as the user reviews and approves output
+**North star:** After any event, the user quickly knows **what mattered**, **what to think about**, and **what to do next**.
 
-**North star:** After any event, the user quickly knows what mattered, what to think about, and what to do next.
+**AI PM guardrail:** Ship the **closed loop with human review** before **automation**. OAuth, auto-publish, and connection automation are **trust rewards**, not day-one features.
 
 ---
 
-## Architecture at a glance
+## Version map — v0 vs v1
+
+| | **v0 — Shipped** | **v1 — Next milestone** |
+|---|------------------|-------------------------|
+| **Product bet** | The full Remember → Think → Create → Review loop works **in-app** on real events | Users return after every event; output quality **compounds** via profile + review |
+| **AI execution** | Server-side LLM (`OPENAI_API_KEY`) runs all four workflows | Eval overrides feed profile; retrieval/context improves per step |
+| **User surface** | Single-page workspace on Vercel; no CLI required for mainstream use | Export, approve, reflection, project links — **L3 Editor** experience |
+| **Personalization** | Your Lens drives Think/Create when profile exists | Projects, insight applications, knowledge graph |
+| **Trust** | L0–L3 capabilities implemented; gates enforced server-side | L3 review/export habit; L4+ integrations still gated |
+| **Deploy** | Vercel + optional Neon Postgres + Blob + Clerk | Production hardening, quality metrics, invite cohort |
+
+**v0 success criteria (current):**
+
+- User logs an event, runs Remember → Think → Create → Review **without leaving the app**
+- At least one draft or takeaway is usable after a real event
+- Trust ladder advances naturally on first event (L0 → L1 → L2 within one session)
+
+**v1 success criteria (target):**
+
+- New user completes onboarding + first event **without reading the README**
+- User edits Think output and approves a draft; next event’s voice score trends up
+- 3+ events logged; user can find any person or takeaway in &lt;30 seconds
+
+---
+
+## Architecture at a glance (v0)
 
 ```mermaid
 flowchart TB
-  subgraph client ["Client layer"]
-    UI["public/ — vanilla HTML/CSS/JS"]
-    CLI["src/cli.ts — lab commands"]
+  subgraph client ["Client — public/"]
+    UI["Vanilla HTML/CSS/JS SPA"]
   end
 
-  subgraph server ["Application layer"]
-    API["src/server.ts — Node HTTP + REST"]
-    Actions["src/lib/actions.ts — Action Center"]
-    Session["src/lib/session.ts — session lifecycle"]
-    Complete["src/lib/complete.ts — stage + XP"]
+  subgraph edge ["Vercel edge"]
+    APIRoutes["api/*.ts — serverless handlers"]
+    Static["index.html + assets"]
+  end
+
+  subgraph app ["Application layer — src/"]
+    Router["src/api/router.ts — REST routing"]
+    RunWF["src/lib/run-workflow.ts — LLM pipeline"]
     Prompts["src/lib/prompts.ts — workflow bundling"]
+    Actions["src/lib/actions.ts — Action Center"]
+    Enrich["src/lib/event-enrichment.ts — Luma/Eventbrite"]
+    Claims["src/lib/claims.ts — claim normalization"]
+    Complete["src/lib/complete.ts — stage + XP merge"]
   end
 
-  subgraph ai ["AI layer (human-in-the-loop today)"]
-    WF["workflows/*.md — agent prompts"]
-    Cursor["Cursor / external LLM"]
+  subgraph ai ["AI layer"]
+    WF["workflows/*.md — agent prompts + schemas"]
+    LLM["src/lib/llm.ts — OpenAI-compatible API"]
     Eval["eval/rubrics/scorecard.json"]
   end
 
-  subgraph data ["Data layer (local-first)"]
+  subgraph data ["Data layer — dual mode"]
+    Neon["Neon Postgres — production"]
+    Blob["Vercel Blob — media captures"]
+    LocalJSON["data/users/{id}/*.json — local dev"]
     Profile["profile/profile.json + resume.md"]
-    Sessions["data/sessions/*.json"]
-    Progress["data/progress.json"]
   end
 
   subgraph trust ["Trust & gamification"]
@@ -53,238 +89,195 @@ flowchart TB
     XP["src/gamification/xp.ts"]
   end
 
-  UI --> API
-  CLI --> Session
-  CLI --> Prompts
-  CLI --> Complete
-  API --> Actions
-  API --> Session
+  subgraph dev ["Dev-only"]
+    CLI["src/cli.ts — lab commands"]
+  end
+
+  UI --> APIRoutes
+  APIRoutes --> Router
+  Router --> RunWF
+  RunWF --> Prompts
   Prompts --> WF
-  WF --> Cursor
-  Cursor -->|JSON output| CLI
-  Complete --> Sessions
-  Complete --> Progress
-  API --> Profile
-  API --> Sessions
-  API --> Progress
-  Levels --> API
-  Levels --> CLI
+  RunWF --> LLM
+  LLM --> RunWF
+  RunWF --> Complete
+  Router --> Enrich
+  Router --> Actions
+  Complete --> Neon
+  Complete --> LocalJSON
+  Router --> Blob
+  Levels --> Router
   XP --> Complete
   Eval --> WF
+  CLI --> RunWF
 ```
 
 ### Core loop (session pipeline)
 
-Every event becomes an **EventSession** that advances through stages:
+Every event is an **`EventSession`** advancing through stages:
 
-| Stage | User verb | Trust level | What happens |
-|-------|-----------|-------------|--------------|
-| `ingested` | Attend | L0 | User logs title, notes, optional event link |
-| `extracted` | Remember | L0 | Claims, people, themes extracted from notes |
-| `synthesized` | Think | L1 | Themes compared to Your Lens; assumption challenges |
-| `drafted` | Create / Connect | L2 | Content angles, LinkedIn draft, follow-up message |
-| `reviewed` | Review | L3 | Human approves; eval overrides train the profile |
-| `published` | — | L4+ | Export or publish (future) |
+| Stage | Tab / verb | Trust | What happens |
+|-------|------------|-------|--------------|
+| `ingested` | **Attend** | L0 | Log event, notes, link, media, attendance intent |
+| `extracted` | **Remember** | L0 | Key takeaways, people, themes from notes + event page context |
+| `synthesized` | **Think** | L1 | Assumption challenges, theme ↔ profile connections, mattered line |
+| `drafted` | **Create** | L2 | Content angles, LinkedIn draft, follow-up messages |
+| `reviewed` | **Review** | L3 | Self-critique eval scores (grounding, voice, lens, non-obviousness) |
+| `published` | — | L4+ | Export / publish (v1+) |
 
-Today, **Remember → Think → Create** runs as a **human-in-the-loop pipeline**: the CLI generates a Cursor-ready prompt from `workflows/`, the user runs it in an external LLM, then pastes JSON back via `npm run lab -- complete`.
+**v0 execution model:** User clicks **Run Remember / Think / Create / Review** in the UI. Server calls the LLM with bundled prompts from `workflows/`, parses JSON, normalizes fields (e.g. claims → key takeaway text), merges into session, awards XP, enforces trust gates.
+
+**Dev fallback:** `npm run lab -- prompt|complete` still works for prompt inspection and offline JSON paste — useful for debugging, not the primary user path.
+
+### LLM context by workflow (what the model sees)
+
+| Workflow | Primary inputs | Profile? | Output fields |
+|----------|----------------|----------|---------------|
+| **extract** (Remember) | `rawNotes`, captures, event page (title, description, topics, speakers) | No (L0) | `people`, `claims`, `themes`, `interactions` |
+| **synthesize** (Think) | Extract output + session context | Yes | `themes` (+ `profileConnection`), `assumptionChallenges` |
+| **draft** (Create) | Synthesis + profile + resume | Yes | `contentAngles`, `contentDrafts`, `followUpDrafts` |
+| **self-critique** (Review) | Drafts + rubric | Yes | `evalScores` (+ suggested edits) |
+
+**AI PM note:** Remember intentionally **does not** load the profile — Observer tier stays privacy-light. Personalization begins at Think.
 
 ### Trust ladder (capabilities, not vanity XP)
 
-Trust levels gate what the system is allowed to do. XP is a progress signal; **unlocked capabilities** are the user-facing story.
+| Level | Name | XP | Unlocks |
+|-------|------|-----|---------|
+| L0 | Observer | 0 | Remember — extract memory |
+| L1 | Synthesizer | 100 | Think — profile comparison, assumption challenges |
+| L2 | Drafter | 200 | Create + Review — angles, drafts, self-critique |
+| L3 | Editor | 500 | Export, approve, eval dashboard (v1 UI) |
+| L4 | Publisher | 1000 | LinkedIn OAuth, review queue |
+| L5 | Networker | 2000 | Speaker graph, batch follow-ups |
+| L6 | Autopilot | 4000 | Multi-platform schedule, audit log |
 
-| Level | Name | Unlocks |
-|-------|------|---------|
-| L0 | Observer | Remember — extract memory from notes |
-| L1 | Synthesizer | Think — connect learnings to Your Lens |
-| L2 | Drafter | Create — angles, drafts, follow-ups |
-| L3 | Editor | Review & export — approve before sharing |
-| L4 | Publisher | LinkedIn OAuth, review queue |
-| L5 | Networker | Event link parsing, connection drafts |
-| L6 | Autopilot | Multi-platform schedule, audit log |
+First event XP tuning (v0): Remember 75 + Think 100 → user reaches L2 (200 XP) after one full loop, unlocking Create on event #1.
 
-Implementation: `src/trust/levels.ts` (gates) + `src/gamification/xp.ts` (rewards).
+Implementation: `src/trust/levels.ts` + `src/gamification/xp.ts`.
 
 ### Your Lens (personalization layer)
 
-`profile/profile.json` holds expertise areas, voice traits, content priorities, and past post examples. Optional `profile/resume.md` enriches onboarding.
+Per-user `profile.json`: expertise areas, voice traits, content priorities, assumption patterns, past post examples. Optional `resume.md` enriches Create/Review.
 
-The AI does not get a generic “summarize this event” job — it interprets the event **through the user’s lens** and is scored on grounding, voice, expertise, and non-obviousness (`eval/rubrics/scorecard.json`).
+The AI never gets a generic “summarize this event” job — it interprets through **Your Lens** and is scored on grounding, voice, expertise, and non-obviousness.
 
 ### Action Center (product logic on top of state)
 
-`src/lib/actions.ts` computes a **priority-ranked queue** of next steps from session stage, profile completeness, and draft state. The home screen surfaces the **one best next action**, not vanity metrics.
+`src/lib/actions.ts` computes a **priority-ranked queue** from session stage, profile completeness, and draft state. Home surfaces the **one best next action**, not vanity metrics.
+
+Also shipped in v0: **Content Hub** (post ideas + drafts), **learning streak**, **capacity sidebar** (L1–L6 arc).
 
 ### Key directories
 
 ```
-profile/           Your Lens — expertise, voice, resume
+api/               Vercel serverless entrypoints (one file per route — Hobby 12-fn limit)
+profile/           Your Lens template + resume example
 workflows/         Agent prompts (Remember → Think → Create → Self-critique)
-eval/rubrics/      Review scorecard dimensions and thresholds
-src/               TypeScript — models, server, CLI, trust, storage
-public/            Static UI served by the local server
-data/              Local sessions + progress (gitignored in real use)
-specs/             Product direction, MVP spec, this doc
+eval/rubrics/      Review scorecard
+src/               TypeScript — models, router, LLM, storage, trust
+public/            SPA — Attend / Think / Create / Review tabs
+data/users/        Local per-user sessions + progress (gitignored)
+specs/             Product direction, this doc, level specs
 examples/pipeline/ Sample extract → synthesize → draft JSON
 ```
 
 ---
 
-## Tech stack
+## Tech stack (v0)
 
 | Layer | Choice | Why |
 |-------|--------|-----|
-| **Runtime** | Node.js 22+ | Simple local server + CLI in one repo |
-| **Language** | TypeScript (ESM) | Shared types between API, CLI, and models |
-| **Execution** | `tsx` | Run TS without a build step in dev |
-| **HTTP server** | `node:http` (no framework) | Minimal surface area for a local-first tool |
-| **Frontend** | Vanilla HTML/CSS/JS | No bundler; fast iteration on a single-page workspace |
-| **Storage** | JSON files on disk | Local-first; profile and sessions stay on the machine |
-| **AI orchestration** | Markdown workflow prompts + Cursor | Explicit prompts, inspectable reasoning, no API key in v0.1 |
-| **Eval** | JSON rubrics + human override | Measurable quality; overrides feed back into profile |
-| **Package manager** | npm | Standard scripts: `dev`, `lab`, `typecheck` |
+| **Runtime** | Node.js 22+ | Serverless + local dev in one repo |
+| **Language** | TypeScript (ESM) | Shared types across API, CLI, models |
+| **Hosting** | Vercel | Static SPA + serverless API |
+| **HTTP** | `node:http` locally; `@vercel/node` in prod | Minimal surface; explicit routes |
+| **Frontend** | Vanilla HTML/CSS/JS | Fast iteration, no bundler |
+| **Database** | Neon Postgres (prod) / JSON files (local) | `DATABASE_URL` toggles mode in `src/lib/storage.ts` |
+| **Media** | Vercel Blob | Photos, audio, video captures |
+| **Auth** | Clerk (optional) | `CLERK_*` keys; dev falls back to `local-dev` user |
+| **AI** | OpenAI-compatible API | `OPENAI_API_KEY`, optional `LLM_MODEL` / `LLM_BASE_URL` |
+| **Orchestration** | Markdown workflows + server runner | Inspectable prompts; JSON schema in workflow files |
+| **Eval** | JSON rubrics + LLM self-critique | Human override path planned for v1 |
 
-**Dependencies (runtime):** none — only devDependencies (`typescript`, `tsx`, `@types/node`).
+**Env vars:** see `.env.example`.
 
-**Not in stack (yet):** database, auth provider, hosted LLM API, React/Vue, Docker, cloud deploy.
-
----
-
-## Product priorities — AI PM framing
-
-### How to read MVP vs P0 / P1 / P2
-
-| Term | Meaning in this project |
-|------|-------------------------|
-| **MVP** | Smallest version that proves the **core job**: after a real event, the user gets grounded memory, lens-aware thinking, and at least one usable draft — with eval and trust framing |
-| **P0** | Must ship for MVP to be **credible and demoable** on real events. If P0 slips, the product does not fulfill the north star |
-| **P1** | Strongly improves **retention and daily use** right after MVP; users can live without it for event #1 but not for event #5 |
-| **P2** | **Trust expansion** — export, review workflows, integrations that require proven human judgment |
-| **P3+** | **Automation and network effects** — OAuth, parsing, scheduling; only after the user has trained the system via review |
-
-**AI PM principle:** Ship the **closed loop with human review** before **automation**. Integrations (LinkedIn, Luma) are trust rewards, not day-one features.
+**Vercel constraint:** Hobby plan = 12 serverless functions. Each `api/**/*.ts` file counts. `/api/health` is droppable if a slot is needed.
 
 ---
 
-### MVP (v0.1) — “Prove the thought partner loop”
+## What v0 shipped (capability checklist)
 
-**User story (from `specs/level-0.md`):**
+| Capability | Status | Notes |
+|------------|--------|-------|
+| Log event (title, type, notes, link, intent) | ✅ | Attend tab + API |
+| Event page enrichment (Luma, Eventbrite, etc.) | ✅ | Ahead of original L5 roadmap |
+| Media capture (photo/audio/video) | ✅ | Blob or local |
+| **Remember** — in-app LLM extract | ✅ | Re-runnable; key takeaways UX label |
+| **Think** — in-app LLM synthesize | ✅ | Editable + Save edits (`matteredLine`, themes, challenges, angles) |
+| **Create** — in-app LLM draft | ✅ | Angles, LinkedIn draft, follow-ups |
+| **Review** — in-app LLM self-critique | ✅ | Four-dimension eval scores |
+| Trust ladder + XP + capacity UI | ✅ | Gates enforced in `run-workflow.ts` |
+| Action Center + Content Hub | ✅ | Home prioritizes next step |
+| Onboarding walkthrough | ✅ | 5-step tour; `PATCH /api/onboarding` |
+| Your Lens edit | ✅ | Profile modal |
+| Local dev (no cloud keys) | ✅ | JSON under `data/users/` |
+| Production deploy | ✅ | Vercel + Neon + Blob + Clerk |
+| CLI lab commands | ✅ | Dev/debug only |
 
-> After a 2-hour SF tech mixer, I paste rough notes. The lab extracts who I met and what I learned, challenges one assumption, surfaces a non-obvious insight aligned with my lens, and drafts a LinkedIn follow-up — all with visible reasoning and citations.
+**Explicitly not in v0:**
 
-**Scope:** Trust levels **L0–L2** only. No OAuth, no auto-publish, no Luma scraping.
-
-| Capability | Status |
-|------------|--------|
-| Log event (title, type, notes, optional link) | Shipped — UI + API + CLI |
-| Remember (extract → claims, people, themes) | Shipped — workflow + CLI `complete extract` |
-| Think (synthesize vs profile, assumption challenges) | Shipped — workflow + CLI `complete synthesize` |
-| Create (angles, LinkedIn draft, follow-up) | Shipped — workflow + CLI `complete draft` |
-| Eval rubrics (grounding, voice, lens, non-obviousness) | Shipped — rubric + workflow self-critique |
-| Your Lens (profile.json + resume) | Shipped — partial UI for edit |
-| Trust ladder + XP | Shipped |
-| Action Center (best next step) | Shipped — server-side logic + home UI |
-| Local-first JSON storage | Shipped |
-
-**MVP success criteria (after 3 real events):**
-
-- Find any person/conversation within 30 seconds
-- At least one draft per event is “send as-is” quality
-- Eval scores trend up as profile corpus grows
-
-**Explicitly out of MVP scope:**
-
-- Instagram, auto-publish, LinkedIn OAuth
-- Audio transcription (Otter/Fireflies later)
-- Luma/event page scraping (URL stored at L0; parsed at L5)
+- Export to clipboard / markdown (L3 — v1)
+- Approve draft → profile feedback loop (L3 — v1)
+- LinkedIn OAuth / auto-publish (L4+)
+- Audio transcription (Otter/Fireflies)
+- Knowledge graph visualization
+- `Project` / `InsightApplication` entities
 
 ---
 
-### P0 — Must-have for MVP credibility
+## v1 roadmap — AI PM priorities
 
-These are the **non-negotiables** inside the L0–L2 boundary. If any fail, the MVP story breaks.
+### Theme A: **Quality compounds** (highest leverage)
 
-| # | Item | Rationale |
-|---|------|-----------|
-| P0.1 | **End-to-end pipeline** ingest → extract → synthesize → draft | Core product; without it, it’s a notes app |
-| P0.2 | **Grounding + citations** on every claim | Trust foundation; eval dimension “grounding ≥ 80” |
-| P0.3 | **Your Lens** drives synthesis and drafts | Differentiator vs generic event summarizers |
-| P0.4 | **Eval on every L2 run** with human override path | Quality loop; overrides improve future runs |
-| P0.5 | **Trust gates** — no drafts before L2, no profile compare before L1 | Safety and positioning (“earn automation”) |
-| P0.6 | **One clear next action** on home | Action over analytics — product promise |
-| P0.7 | **Local-first** — no required cloud or API keys | Privacy and solo-founder velocity |
+| # | Item | User outcome | AI PM rationale |
+|---|------|--------------|-----------------|
+| A1 | **Eval override → profile** | Next draft sounds more like me | Closes the learning loop; without it, AI is stateless across events |
+| A2 | **Grounding UX** | I trust every takeaway | Show source refs inline; flag low-confidence extractions |
+| A3 | **Think reflection field** | “What changed my thinking?” | Captures human insight the model cannot infer — high-signal training data |
+| A4 | **Re-run Think** (parity with Remember) | Iterate without losing edits | Users need same re-run affordance as Remember |
 
-*Most P0 items are implemented in v0.1; the main gap is **tighter UI ↔ CLI integration** (running workflows from the UI without manual JSON paste is post-MVP polish, not a P0 spec change).*
+### Theme B: **Habit & clarity**
 
----
+| # | Item | User outcome | AI PM rationale |
+|---|------|--------------|-----------------|
+| B1 | **L3 Editor flow** | Approve → export → unlock L4 framing | Trust ladder needs a visible “graduate” moment |
+| B2 | **Onboarding → first event without docs** | I’m productive on event #1 | Lens completion + guided first Remember |
+| B3 | **Project links in Think** | “Apply to Frontera eval framework” | Bridges memory → action; differentiator vs generic notes |
+| B4 | **Knowledge graph (session-scoped)** | See Speaker → Takeaway → Theme → Draft | Makes memory legible; supports trust |
 
-### P1 — Retention and “I open this after every event”
+### Theme C: **Scale & ops** (after A + B)
 
-Aligned with `specs/product-direction.md` build priority. These make the product **habit-forming** after the first successful run.
-
-| # | Item | User outcome | Notes |
-|---|------|--------------|-------|
-| P1.1 | **Home redesign** — latest event hero + Action Center + Your Lens | “I know what to do next” in &lt;5 seconds | Partially shipped |
-| P1.2 | **Think tab enrichment** — what mattered, project connections, `userReflection` | Thought partner, not recap | Data model spec’d; UI thin |
-| P1.3 | **Onboarding** — resume upload / bio / paste posts | Lens complete before event #2 | Profile status exists; wizard incomplete |
-| P1.4 | **New Event wizard** — notes, link, photos in one flow | Lower friction to log while tired post-event | API exists; wizard UX partial |
-| P1.5 | **Session detail tabs** — Remember / Think / Create / Connect / Review | Vocabulary matches mental model | UI scaffolded in `public/` |
-| P1.6 | **Knowledge graph view** (session-scoped) | See path: Speaker → Claim → Theme → Project → Content | Not built |
-| P1.7 | **In-app workflow trigger** (optional API LLM) | No copy-paste JSON for mainstream users | Architecture stays prompt-based |
-
-**P1 exit criteria:** A new user completes onboarding, logs an event, and finishes Think + one draft **without reading the README**.
-
----
-
-### P2 — Review, export, and trust level L3
-
-Unlock **Editor** — human-approved output leaves the app.
-
-| # | Item | Trust gate |
-|---|------|------------|
-| P2.1 | Export to clipboard / markdown file | L3 |
-| P2.2 | Approve draft flow + XP for approval | L3 |
-| P2.3 | Eval dashboard with overrides persisted to profile | L3 |
-| P2.4 | Multi-platform format (same insight, LinkedIn vs newsletter) | L3 |
-
-**P2 exit criteria:** User approves a draft, exports it, and eval overrides measurably change the next draft’s voice score.
-
----
-
-### P3 — Publisher & Networker (L4–L5)
-
-**Only after** the user has reviewed drafts — integrations are framed as **earned**, not paywalled.
-
-| # | Item | Level |
+| # | Item | Notes |
 |---|------|-------|
-| P3.1 | LinkedIn OAuth + review queue (no blind auto-post) | L4 |
-| P3.2 | Parse event URLs (Luma, Eventbrite) for speakers/context | L5 |
-| P3.3 | Speaker graph + batch connection/follow-up drafts | L5 |
-| P3.4 | Structured `Project` + `InsightApplication` entities | L5 enabler |
+| C1 | Multi-user cohort metrics | Completion rate per loop step, eval distributions |
+| C2 | Prompt versioning + A/B | Workflow changes need measurable impact |
+| C3 | L4 LinkedIn OAuth (review queue only) | Still no blind auto-post |
+| C4 | Audio ingest → transcript → Remember | Extends input surface |
+
+**v1 exit criteria:** A beta user logs 3 events, edits Think output, approves one draft, and reports the second event’s draft required less editing than the first.
 
 ---
 
-### P4 — Autopilot (L6)
+## Later horizons (v2+)
 
-| # | Item |
-|---|------|
-| P4.1 | Multi-platform scheduled publish |
-| P4.2 | Connection send automation (with audit) |
-| P4.3 | Audit log + rollback |
+| Horizon | Focus | Trust gate |
+|---------|-------|------------|
+| **v2 — Networker** | Speaker graph, batch follow-ups, calendar/Luma integrations | L5 |
+| **v3 — Publisher** | LinkedIn review queue, multi-format export | L4 |
+| **v4 — Autopilot** | Scheduled publish, connection automation, audit log | L6 |
 
-**AI PM guardrail:** L6 is a **destination**, not a launch target. Autopilot without L3 review history produces off-brand, off-grounding output at scale.
-
----
-
-## Two axes: trust levels vs build priorities
-
-Do not conflate them:
-
-| Axis | What it is | Example |
-|------|------------|---------|
-| **Trust level (L0–L6)** | **User progress** — what capabilities unlock as they earn XP and approve output | L2 unlocks draft generation |
-| **Build priority (P0–P4)** | **Engineering sequence** — what the team ships when | P1 ships Think tab before P3 ships LinkedIn OAuth |
-
-A user can be at **L2** while the product only **implements UI for L0–L1** — that’s a P1 delivery gap, not a trust bug.
+**Do not conflate trust levels with build sequence.** A user can be L2 while the product only implements L3 UI — that’s a delivery gap, not a trust bug.
 
 ---
 
@@ -292,38 +285,44 @@ A user can be at **L2** while the product only **implements UI for L0–L1** —
 
 Central entity: **`EventSession`** (`src/models/types.ts`)
 
-- **Inputs:** `rawNotes`, `screenshotDescriptions`, `eventUrl`, `eventType`
-- **Memory:** `people`, `interactions`, `claims`, `themes`
-- **Thought partner:** `assumptionChallenges`, theme `relation` + `profileConnection`
-- **Outputs:** `contentAngles`, `followUpDrafts`, `contentDrafts`, `evalScores`
-- **Meta:** `stage`, `trustLevelAtCreation`, `xpEarned`
+| Group | Fields |
+|-------|--------|
+| **Inputs** | `rawNotes`, `screenshotDescriptions`, `eventUrl`, `eventEnrichment`, `attendanceIntent`, `captures` |
+| **Memory (Remember)** | `people`, `interactions`, `claims` (UI: **key takeaways**), `themes` |
+| **Thought partner (Think)** | `assumptionChallenges`, `matteredLine`, theme `profileConnection` / `relation` |
+| **Outputs (Create / Review)** | `contentAngles`, `followUpDrafts`, `contentDrafts`, `evalScores` |
+| **Meta** | `stage`, `trustLevelAtCreation`, `xpEarned`, `userId` |
 
-**Planned entities** (product direction, not all in types yet):
+**Planned for v1** (not all in types yet):
 
 - `Project` — user’s active work
-- `InsightApplication` — claim/theme → project → suggested action
-- `ActionItem` — typed next step (partially implemented in `actions.ts`)
-- `userReflection` — “What changed my thinking?” per session
+- `InsightApplication` — takeaway/theme → project → suggested action
+- `userReflection` — “What changed my thinking?”
 
 ---
 
-## API surface (today)
+## API surface (v0)
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/api/dashboard` | Home — progress, actions, sessions, featured session, lens |
-| GET/PUT | `/api/profile` | Read/update Your Lens |
-| GET/POST | `/api/sessions` | List / create event session |
-| GET/PATCH | `/api/sessions/:id` | Read / add event link |
-
-Static assets: `public/` served on `GET /`.
+| GET | `/api/config` | Auth + storage mode flags for client |
+| GET | `/api/dashboard` | Home — progress, actions, sessions, onboarding, content hub |
+| PATCH | `/api/onboarding` | Tour progress |
+| GET/PUT | `/api/profile` | Your Lens |
+| POST | `/api/events/preview-url` | Preview event link before session create |
+| GET/POST | `/api/sessions` | List / create session |
+| GET/PATCH | `/api/sessions/:id` | Read / update notes, intent, think edits |
+| POST | `/api/sessions/:id/enrich-event` | Refresh event page scrape |
+| POST | `/api/sessions/:id/workflows/{extract\|synthesize\|draft\|self-critique}` | Run LLM pipeline step |
+| POST/GET/DELETE | `/api/sessions/:id/captures/...` | Media upload / serve / remove |
 
 ---
 
-## CLI surface (today)
+## CLI surface (dev)
 
 ```bash
-npm run lab -- new --title "..." --type mixer --notes notes.md
+npm run dev                              # Local server :3000
+npm run lab -- new --title "..." --notes notes.md
 npm run lab -- prompt extract|synthesize|draft|self-critique --session <id>
 npm run lab -- complete extract|synthesize|draft --session <id> --json <file>
 npm run lab -- list | show <id> | status | bootstrap
@@ -347,7 +346,8 @@ If it only shows data without a clear action, demote or remove it.
 
 | Doc | Focus |
 |-----|-------|
-| [README.md](../README.md) | Quick start, principles, trust table |
-| [specs/product-direction.md](./product-direction.md) | UX vocabulary, home/session design, build priority list |
-| [specs/level-0.md](./level-0.md) | L0–L2 MVP spec, eval thresholds, XP rewards |
-| [examples/pipeline/README.md](../examples/pipeline/README.md) | Sample full pipeline run |
+| [README.md](../README.md) | Quick start, principles |
+| [specs/product-direction.md](./product-direction.md) | v0/v1 UX, vocabulary, tab design |
+| [specs/level-0.md](./level-0.md) | L0–L2 eval thresholds, XP rewards |
+| [specs/onboarding-walkthrough.md](./onboarding-walkthrough.md) | First-run tour |
+| [examples/pipeline/README.md](../examples/pipeline/README.md) | Sample pipeline JSON |
