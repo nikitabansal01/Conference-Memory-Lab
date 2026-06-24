@@ -3,8 +3,8 @@ import { levelFromXp } from "../trust/levels.js";
 
 export const XP_REWARDS: Record<string, number> = {
   create_session: 25,
-  complete_extract: 50,
-  complete_synthesize: 75,
+  complete_extract: 75,
+  complete_synthesize: 100,
   complete_draft: 100,
   approve_draft: 50,
   publish: 150,

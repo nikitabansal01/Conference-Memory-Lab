@@ -2093,10 +2093,13 @@ function renderSessionView() {
   document.getElementById("panel-attend").innerHTML = renderAttend(session);
   bindAttendPanel(session);
   document.getElementById("panel-think").innerHTML = renderThink(session);
+  bindThinkPanel(session);
   document.getElementById("panel-connect").innerHTML = renderConnect(session);
   bindConnectPanel(session);
   document.getElementById("panel-create").innerHTML = renderCreate(session);
+  bindCreatePanel(session);
   document.getElementById("panel-review").innerHTML = renderReview(session);
+  bindReviewPanel(session);
   setActiveTab(activeTab);
 }
 
@@ -2217,7 +2220,11 @@ function renderAttend(session) {
         </div>
       </div>
     </details>` : `
-    <p class="field-hint attend-extract-hint">After you save notes, run Remember in the CLI to extract people and claims.</p>`}`;
+    <div class="workflow-actions">
+      <button type="button" class="btn btn-primary" id="btn-run-remember">Run Remember</button>
+      <span class="workflow-status" id="remember-status" aria-live="polite"></span>
+      <p class="field-hint">Extract people, claims, and themes from your notes.</p>
+    </div>`}`;
 }
 
 function captureUrl(sessionId, captureId) {
@@ -2252,6 +2259,7 @@ function bindAttendPanel(session) {
 
   const notesEl = panel.querySelector("#attend-notes");
   const statusEl = panel.querySelector("#attend-save-status");
+  const rememberStatusEl = panel.querySelector("#remember-status");
   const uploadStatusEl = panel.querySelector("#attend-upload-status");
   const fileInput = panel.querySelector("#attend-file-input");
 
@@ -2259,8 +2267,19 @@ function bindAttendPanel(session) {
     notesEl?.setAttribute("readonly", "readonly");
     panel.querySelector("#btn-save-attend-notes")?.setAttribute("disabled", "true");
     panel.querySelector("#btn-attend-upload")?.setAttribute("disabled", "true");
+    panel.querySelector("#btn-run-remember")?.setAttribute("disabled", "true");
     return;
   }
+
+  panel.querySelector("#btn-run-remember")?.addEventListener("click", async () => {
+    if (notesEl && notesEl.value !== (session.rawNotes ?? "")) {
+      await saveNotes();
+    }
+    await runSessionWorkflow(session.id, "extract", rememberStatusEl, () => {
+      document.getElementById("panel-attend").innerHTML = renderAttend(currentSession);
+      bindAttendPanel(currentSession);
+    });
+  });
 
   async function saveNotes() {
     if (!notesEl) return;
@@ -2371,27 +2390,164 @@ function fileToBase64(file) {
   });
 }
 
+const WORKFLOW_UI = {
+  extract: { btn: "btn-run-remember", running: "Extracting…" },
+  synthesize: { btn: "btn-run-think", running: "Thinking…" },
+  draft: { btn: "btn-run-create", running: "Drafting…" },
+  "self-critique": { btn: "btn-run-review", running: "Reviewing…" },
+};
+
+async function runSessionWorkflow(sessionId, workflow, statusEl, onSuccess) {
+  const ui = WORKFLOW_UI[workflow] ?? {};
+  const btn = document.getElementById(ui.btn);
+  if (statusEl) statusEl.textContent = ui.running ?? "Running…";
+  btn?.setAttribute("disabled", "true");
+  try {
+    const data = await fetchJson(`/api/sessions/${sessionId}/workflows/${workflow}`, {
+      method: "POST",
+    });
+    currentSession = data.session;
+    if (statusEl) {
+      statusEl.textContent = data.leveledUp ? "Done — level up!" : "Done";
+    }
+    renderSessionView();
+    onSuccess?.();
+  } catch (err) {
+    if (statusEl) statusEl.textContent = "";
+    alert(err instanceof Error ? err.message : "Workflow failed");
+  } finally {
+    btn?.removeAttribute("disabled");
+  }
+}
+
+function bindThinkPanel(session) {
+  const panel = document.getElementById("panel-think");
+  if (!panel) return;
+
+  if (session.isSample) {
+    panel.querySelector("#btn-run-think")?.setAttribute("disabled", "true");
+    return;
+  }
+
+  panel.querySelector("#btn-run-think")?.addEventListener("click", async () => {
+    const statusEl = panel.querySelector("#think-status");
+    await runSessionWorkflow(session.id, "synthesize", statusEl);
+  });
+}
+
 function renderThink(session) {
   const challenges = session.assumptionChallenges ?? [];
   const themes = session.themes ?? [];
   const angles = session.contentAngles ?? [];
+  const canRun = session.stage === "extracted" || challenges.length > 0 || themes.some((t) => t.profileConnection);
+  const showRun = session.stage === "ingested" || session.stage === "extracted";
+  const runLabel = session.stage === "extracted" ? "Run Think" : "Run Remember first";
   return `
+    ${showRun ? `
+    <div class="workflow-actions think-actions">
+      <button type="button" class="btn btn-primary" id="btn-run-think" ${session.stage === "ingested" ? "disabled" : ""}>${runLabel}</button>
+      <span class="workflow-status" id="think-status" aria-live="polite"></span>
+      ${session.stage === "ingested" ? '<p class="field-hint">Complete Remember on the Attend tab first.</p>' : ""}
+    </div>` : ""}
     <section class="think-hero">
       <h3>What mattered for you</h3>
       <p class="matter-line">${escapeHtml(getMatteredLine(session))}</p>
     </section>
     <h3>Think deeper</h3>
-    ${challenges.map((c) => `<div class="entity"><strong>${escapeHtml(c.question)}</strong><p>${escapeHtml(c.intent)}</p></div>`).join("") || '<p class="empty">Run Think after capture.</p>'}
+    ${challenges.map((c) => `<div class="entity"><strong>${escapeHtml(c.question)}</strong><p>${escapeHtml(c.intent)}</p></div>`).join("") || '<p class="empty">Assumption challenges appear after Think runs.</p>'}
     <h3 style="margin-top:20px">Apply to your work</h3>
-    ${themes.filter((t) => t.profileConnection).map((t) => `<div class="entity"><strong>${escapeHtml(t.label)}</strong><p>${escapeHtml(t.profileConnection)}</p></div>`).join("")}
+    ${themes.filter((t) => t.profileConnection).map((t) => `<div class="entity"><strong>${escapeHtml(t.label)}</strong><p>${escapeHtml(t.profileConnection)}</p></div>`).join("") || (canRun ? "" : '<p class="empty">Profile connections appear after Think runs.</p>')}
     <h3 style="margin-top:20px">Angles</h3>
     ${angles.map((a) => `<div class="entity"><strong>${escapeHtml(a.title)}</strong><p>${escapeHtml(a.nonObviousInsight)}</p></div>`).join("")}`;
 }
 
 function renderCreate(session) {
   const drafts = session.contentDrafts ?? [];
-  if (!drafts.length) return '<p class="empty">Drafts appear after Think & Connect — tag people you reached out to.</p>';
-  return drafts.map((d) => `<div style="margin-bottom:18px"><h3>${escapeHtml(d.platform)}</h3><div class="draft-box">${escapeHtml(d.body)}</div></div>`).join("");
+  const angles = session.contentAngles ?? [];
+  const followUps = session.followUpDrafts ?? [];
+  const showRun = session.stage === "synthesized";
+
+  const parts = [];
+  if (showRun) {
+    parts.push(`
+    <div class="workflow-actions">
+      <button type="button" class="btn btn-primary" id="btn-run-create">Run Create</button>
+      <span class="workflow-status" id="create-status" aria-live="polite"></span>
+      <p class="field-hint">Generate content angles, a LinkedIn draft, and follow-up messages.</p>
+    </div>`);
+  } else if (session.stage === "extracted" || session.stage === "ingested") {
+    parts.push('<p class="empty">Complete Think before creating drafts.</p>');
+  }
+
+  if (angles.length) {
+    parts.push(`<h3>Content angles</h3>${angles.map((a) => `<div class="entity"><strong>${escapeHtml(a.title)}</strong><p>${escapeHtml(a.nonObviousInsight)}</p></div>`).join("")}`);
+  }
+
+  if (drafts.length) {
+    parts.push(drafts.map((d) => `<div style="margin-bottom:18px"><h3>${escapeHtml(d.platform)}</h3><div class="draft-box">${escapeHtml(d.body)}</div></div>`).join(""));
+  } else if (!showRun && (session.stage === "drafted" || session.stage === "reviewed")) {
+    parts.push('<p class="empty">No content drafts yet.</p>');
+  }
+
+  if (followUps.length) {
+    parts.push(`<h3 style="margin-top:20px">Follow-ups</h3>${followUps.map((f) => {
+      const person = (session.people ?? []).find((p) => p.id === f.personId);
+      return `<div class="entity"><strong>${escapeHtml(person?.name ?? "Connection")}</strong><p>${escapeHtml(f.message)}</p></div>`;
+    }).join("")}`);
+  }
+
+  return parts.join("") || '<p class="empty">Drafts appear after you run Create.</p>';
+}
+
+function bindCreatePanel(session) {
+  const panel = document.getElementById("panel-create");
+  if (!panel || session.isSample) {
+    panel?.querySelector("#btn-run-create")?.setAttribute("disabled", "true");
+    return;
+  }
+  panel.querySelector("#btn-run-create")?.addEventListener("click", async () => {
+    await runSessionWorkflow(session.id, "draft", panel.querySelector("#create-status"));
+  });
+}
+
+function renderReview(session) {
+  const e = session.evalScores;
+  const hasDrafts = (session.contentDrafts ?? []).length > 0;
+  const showRun = session.stage === "drafted" && hasDrafts;
+  const parts = [];
+
+  if (showRun) {
+    parts.push(`
+    <div class="workflow-actions">
+      <button type="button" class="btn btn-primary" id="btn-run-review">Run Review</button>
+      <span class="workflow-status" id="review-status" aria-live="polite"></span>
+      <p class="field-hint">Score drafts on grounding, voice, lens, and non-obviousness.</p>
+    </div>`);
+  } else if (session.stage === "synthesized") {
+    parts.push('<p class="empty">Run Create first — then review scores appear here.</p>');
+  }
+
+  if (e) {
+    parts.push(`<div class="score-grid">
+      ${scoreCell("Grounding", e.grounding)}${scoreCell("Voice", e.voice)}
+      ${scoreCell("Expertise", e.expertiseLens)}${scoreCell("Non-obvious", e.nonObviousness)}
+    </div>${e.notes ? `<p class="field-hint" style="margin-top:16px">${escapeHtml(e.notes)}</p>` : ""}`);
+  } else if (!showRun && session.stage !== "synthesized") {
+    parts.push('<p class="empty">Review scores appear after Create.</p>');
+  }
+
+  return parts.join("") || '<p class="empty">Review scores appear after Create.</p>';
+}
+
+function bindReviewPanel(session) {
+  const panel = document.getElementById("panel-review");
+  if (!panel || session.isSample) {
+    panel?.querySelector("#btn-run-review")?.setAttribute("disabled", "true");
+    return;
+  }
+  panel.querySelector("#btn-run-review")?.addEventListener("click", async () => {
+    await runSessionWorkflow(session.id, "self-critique", panel.querySelector("#review-status"));
+  });
 }
 
 function renderConnect(session) {
@@ -2475,15 +2631,6 @@ function bindConnectPanel(session) {
       }
     });
   });
-}
-
-function renderReview(session) {
-  const e = session.evalScores;
-  if (!e) return '<p class="empty">Review scores appear after Create.</p>';
-  return `<div class="score-grid">
-    ${scoreCell("Grounding", e.grounding)}${scoreCell("Voice", e.voice)}
-    ${scoreCell("Expertise", e.expertiseLens)}${scoreCell("Non-obvious", e.nonObviousness)}
-  </div>${e.notes ? `<p class="field-hint" style="margin-top:16px">${escapeHtml(e.notes)}</p>` : ""}`;
 }
 
 function handleAction(action) {

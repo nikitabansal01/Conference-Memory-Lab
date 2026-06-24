@@ -41,6 +41,8 @@ import {
 } from "../lib/captures.js";
 import type { RequestAuth } from "../lib/auth.js";
 import { getClerkPublishableKey, isAuthConfigured, getClerkSetupStatus } from "../lib/auth.js";
+import { isLlmConfigured } from "../lib/llm.js";
+import { runSessionWorkflow, type RunnableWorkflow } from "../lib/run-workflow.js";
 
 const EVENT_TYPES: EventType[] = ["mixer", "panel", "conference", "webinar", "other"];
 
@@ -261,6 +263,7 @@ export async function routeApi(
         clerkPublishableKey: getClerkPublishableKey(),
         authRequired: isAuthConfigured() || Boolean(process.env.VERCEL),
         clerkSetup: getClerkSetupStatus(),
+        llmConfigured: isLlmConfigured(),
       },
     };
   }
@@ -671,6 +674,40 @@ export async function routeApi(
     } catch (err) {
       const message = err instanceof Error ? err.message : "Upload failed";
       return { status: 400, body: { error: message } };
+    }
+  }
+
+  const workflowMatch = pathname.match(
+    /^\/api\/sessions\/([^/]+)\/workflows\/(extract|synthesize|draft|self-critique)$/
+  );
+  if (workflowMatch && method === "POST") {
+    const [, sessionId, workflowName] = workflowMatch;
+    const workflow = workflowName as RunnableWorkflow;
+    const session = await resolveSession(sessionId, auth.userId);
+    if (!session || (session.userId && session.userId !== auth.userId)) {
+      return { status: 404, body: { error: "Session not found" } };
+    }
+
+    try {
+      const result = await runSessionWorkflow(workflow, session, auth.userId);
+      const profile = await loadProfileOrExample(auth.userId);
+      return {
+        status: 200,
+        body: {
+          session: {
+            ...result.session,
+            eventLinkNudge: eventLinkNudge(result.session),
+            eventLinkInfo: result.session.eventUrl ? parseEventUrl(result.session.eventUrl) : null,
+            connectionDrafts: buildConnectionDrafts(result.session, profile),
+          },
+          xpAwarded: result.xpAwarded,
+          leveledUp: result.leveledUp,
+        },
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Workflow failed";
+      const status = message.includes("not configured") ? 503 : 400;
+      return { status, body: { error: message } };
     }
   }
 

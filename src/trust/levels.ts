@@ -43,7 +43,7 @@ export const TRUST_LEVELS: LevelDefinition[] = [
     level: 2,
     name: "Drafter",
     tagline: "Thought partner for non-obvious insights",
-    xpRequired: 250,
+    xpRequired: 200,
     permittedActions: [
       "generate_content_angles",
       "generate_followup_drafts",

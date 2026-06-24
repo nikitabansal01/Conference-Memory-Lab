@@ -28,6 +28,7 @@ export function mergeSessionUpdate(
     contentAngles: update.contentAngles ?? session.contentAngles,
     followUpDrafts: update.followUpDrafts ?? session.followUpDrafts,
     contentDrafts: update.contentDrafts ?? session.contentDrafts,
+    evalScores: update.evalScores ?? session.evalScores,
   };
 }
 

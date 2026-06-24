@@ -35,36 +35,42 @@ function formatProfile(profile: ExpertiseProfile): string {
   return JSON.stringify(profile, null, 2);
 }
 
-function formatSessionContext(session: EventSession): string {
-  return JSON.stringify(
-    {
-      id: session.id,
-      title: session.title,
-      eventType: session.eventType,
-      eventUrl: session.eventUrl,
-      location: session.location,
-      attendanceIntent: session.attendanceIntent,
-      eventPageContext: session.eventEnrichment
-        ? {
-            title: session.eventEnrichment.title,
-            description: session.eventEnrichment.description,
-            topics: session.eventEnrichment.topics,
-            hosts: session.eventEnrichment.speakers.filter((s) => s.role === "host"),
-            attendeeCount: session.eventEnrichment.attendeeCount,
-          }
-        : undefined,
-      rawNotes: session.rawNotes,
-      screenshotDescriptions: session.screenshotDescriptions,
-      people: session.people,
-      interactions: session.interactions,
-      claims: session.claims,
-      themes: session.themes,
-      assumptionChallenges: session.assumptionChallenges,
-      contentAngles: session.contentAngles,
-    },
-    null,
-    2
-  );
+function formatSessionContext(session: EventSession, workflow: WorkflowName): string {
+  const payload: Record<string, unknown> = {
+    id: session.id,
+    title: session.title,
+    eventType: session.eventType,
+    eventUrl: session.eventUrl,
+    location: session.location,
+    attendanceIntent: session.attendanceIntent,
+    eventPageContext: session.eventEnrichment
+      ? {
+          title: session.eventEnrichment.title,
+          description: session.eventEnrichment.description,
+          topics: session.eventEnrichment.topics,
+          hosts: session.eventEnrichment.speakers.filter((s) => s.role === "host"),
+          attendeeCount: session.eventEnrichment.attendeeCount,
+        }
+      : undefined,
+    rawNotes: session.rawNotes,
+    screenshotDescriptions: session.screenshotDescriptions,
+    people: session.people,
+    interactions: session.interactions,
+    claims: session.claims,
+    themes: session.themes,
+    assumptionChallenges: session.assumptionChallenges,
+    contentAngles: session.contentAngles,
+  };
+
+  if (workflow === "draft" || workflow === "self-critique") {
+    payload.contentDrafts = session.contentDrafts;
+    payload.followUpDrafts = session.followUpDrafts;
+  }
+  if (workflow === "self-critique") {
+    payload.evalScores = session.evalScores;
+  }
+
+  return JSON.stringify(payload, null, 2);
 }
 
 export async function buildWorkflowPrompt(
@@ -90,12 +96,20 @@ export async function buildWorkflowPrompt(
 
   const template = await readFile(join(WORKFLOWS_DIR, WORKFLOW_FILES[workflow]), "utf-8");
   const resume = profile && workflow !== "extract" ? await loadResume() : null;
+  const rubric =
+    workflow === "self-critique"
+      ? await readFile(
+          join(dirname(fileURLToPath(import.meta.url)), "..", "..", "eval", "rubrics", "scorecard.json"),
+          "utf-8"
+        )
+      : null;
 
   const userContext = [
     "## Event session",
-    formatSessionContext(session),
+    formatSessionContext(session, workflow),
     profile ? "\n## Expertise profile\n" + formatProfile(profile) : "",
     resume ? "\n## Resume (professional context)\n" + resume : "",
+    rubric ? "\n## Eval rubrics\n" + rubric : "",
   ].join("\n");
 
   const parts = template.split("---");
