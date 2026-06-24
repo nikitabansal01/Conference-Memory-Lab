@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type {
+  EventEnrichment,
   EventSession,
   EventType,
   ExpertiseProfile,
@@ -17,6 +18,24 @@ const DEFAULT_PROGRESS: UserProgress = {
   unlockedActions: [],
   milestones: [],
 };
+
+export function titleFromEnrichment(enrichment?: EventEnrichment | null): string | undefined {
+  const title = enrichment?.title?.trim();
+  if (!title || title === "Event") return undefined;
+  return title;
+}
+
+export function resolveSessionTitle(
+  session: Pick<EventSession, "title" | "eventEnrichment">
+): string {
+  return titleFromEnrichment(session.eventEnrichment) || session.title?.trim() || "Event";
+}
+
+export function applyEnrichmentTitle(session: EventSession): EventSession {
+  const pageTitle = titleFromEnrichment(session.eventEnrichment);
+  if (!pageTitle || session.title === pageTitle) return session;
+  return { ...session, title: pageTitle };
+}
 
 export function createSession(input: {
   title: string;

@@ -1,4 +1,6 @@
 import type { EventSession, ExpertiseProfile } from "../models/types.js";
+import { resolveSessionTitle } from "./session.js";
+import { buildConnectionDrafts } from "./connection-drafts.js";
 import type { ProfileStatus } from "./profile-status.js";
 import { parseEventUrl } from "./event-url.js";
 
@@ -71,7 +73,7 @@ export function actionGoal(action: ActionItem): ActionGoal {
 function withSessionMeta(item: Omit<ActionItem, "sessionTitle">, session: EventSession): ActionItem {
   return {
     ...item,
-    sessionTitle: session.title,
+    sessionTitle: resolveSessionTitle(session),
     goal: item.goal ?? actionGoal(item as ActionItem),
   };
 }
@@ -88,7 +90,7 @@ export function buildSessionActionItems(
         {
           id: `add-link-${session.id}`,
           type: "add_event_link",
-          label: `Add link to “${session.title}”`,
+          label: `Add link to “${resolveSessionTitle(session)}”`,
           description: "Paste the Luma, Eventbrite, or conference page",
           priority: 85,
           sessionId: session.id,
@@ -104,7 +106,7 @@ export function buildSessionActionItems(
       id: `attend-${session.id}`,
       type: "remember",
       label: "Capture what you learned",
-      description: `Finish processing notes from “${session.title}”`,
+      description: `Finish processing notes from “${resolveSessionTitle(session)}”`,
       priority: 80,
       sessionId: session.id,
       tab: "attend",
@@ -113,7 +115,7 @@ export function buildSessionActionItems(
       id: `think-${session.id}`,
       type: "think",
       label: "Think deeper about this event",
-      description: `What mattered at “${session.title}” — for your lens, not a recap`,
+      description: `What mattered at “${resolveSessionTitle(session)}” — for your lens, not a recap`,
       priority: 80,
       sessionId: session.id,
       tab: "think",
@@ -122,7 +124,7 @@ export function buildSessionActionItems(
       id: `connect-${session.id}`,
       type: "connect",
       label: "Reach out while it's fresh",
-      description: `Draft follow-ups from “${session.title}” before you publish`,
+      description: `Draft follow-ups from “${resolveSessionTitle(session)}” before you publish`,
       priority: 80,
       sessionId: session.id,
       tab: "connect",
@@ -131,7 +133,7 @@ export function buildSessionActionItems(
       id: `create-${session.id}`,
       type: "create",
       label: "Draft your take from this event",
-      description: `Turn “${session.title}” insights into a post you can tag people in`,
+      description: `Turn “${resolveSessionTitle(session)}” insights into a post you can tag people in`,
       priority: 75,
       sessionId: session.id,
       tab: "create",
@@ -140,7 +142,7 @@ export function buildSessionActionItems(
       id: `review-${session.id}`,
       type: "review",
       label: "Review before you share",
-      description: `Final check on grounding and voice for “${session.title}”`,
+      description: `Final check on grounding and voice for “${resolveSessionTitle(session)}”`,
       priority: 70,
       sessionId: session.id,
       tab: "review",
@@ -150,6 +152,26 @@ export function buildSessionActionItems(
 
   const stageAction = stageActions[session.stage];
   if (stageAction) items.push(withSessionMeta(stageAction, session));
+
+  const connectionDrafts = buildConnectionDrafts(session, profile);
+  const eventPageDrafts = connectionDrafts.filter((draft) => draft.source === "event_page");
+  if (eventPageDrafts.length > 0 && (session.stage === "ingested" || session.stage === "extracted")) {
+    items.push(
+      withSessionMeta(
+        {
+          id: `connect-speakers-${session.id}`,
+          type: "connect",
+          label: `Connect with speakers from “${resolveSessionTitle(session)}”`,
+          description: `${eventPageDrafts.length} personalized connection note${eventPageDrafts.length === 1 ? "" : "s"} ready from the event page`,
+          priority: 78,
+          sessionId: session.id,
+          tab: "connect",
+          goal: "people",
+        },
+        session
+      )
+    );
+  }
 
   if (
     session.followUpDrafts.length > 0 &&
@@ -163,7 +185,7 @@ export function buildSessionActionItems(
             id: `followup-${draft.id}`,
             type: "connect",
             label: `Follow up with ${person?.name ?? "someone you met"}`,
-            description: `At “${session.title}” · send before you publish so you can tag them`,
+            description: `At “${resolveSessionTitle(session)}” · send before you publish so you can tag them`,
             priority: 82,
             sessionId: session.id,
             tab: "connect",
@@ -285,7 +307,7 @@ export function eventLinkNudge(session: EventSession): {
   }
   return {
     show: true,
-    message: `Add the event page for “${session.title}” (the event you already attended) — Luma, Eventbrite, or conference site.`,
+    message: `Add the event page for “${resolveSessionTitle(session)}” (the event you already attended) — Luma, Eventbrite, or conference site.`,
   };
 }
 

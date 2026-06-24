@@ -30,6 +30,7 @@ import {
   normalizeOnboarding,
   shouldShowOnboarding,
 } from "../lib/onboarding.js";
+import { buildConnectionDrafts } from "../lib/connection-drafts.js";
 import { parseEventUrl, isValidEventUrl } from "../lib/event-url.js";
 import {
   saveCaptureFile,
@@ -697,12 +698,14 @@ export async function routeApi(
     if (!session) {
       return { status: 404, body: { error: "Session not found" } };
     }
+    const profile = await loadProfileOrExample();
     return {
       status: 200,
       body: {
         ...session,
         eventLinkNudge: eventLinkNudge(session),
         eventLinkInfo: session.eventUrl ? parseEventUrl(session.eventUrl) : null,
+        connectionDrafts: buildConnectionDrafts(session, profile),
       },
     };
   }

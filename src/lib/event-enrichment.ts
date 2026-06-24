@@ -143,25 +143,166 @@ function speakerFromLumaPerson(
   };
 }
 
+type MirrorNode = {
+  type?: string;
+  text?: string;
+  content?: unknown[];
+  marks?: { type?: string }[];
+};
+
+function mirrorText(node: MirrorNode): string {
+  return node.type === "text" && typeof node.text === "string" ? node.text : "";
+}
+
+function hasMirrorMark(node: MirrorNode, markType: string): boolean {
+  return Array.isArray(node.marks) && node.marks.some((mark) => mark.type === markType);
+}
+
+function collapseDuplicateLabel(text: string): string {
+  return text.replace(/^(.{2,120}?)\1(?=\s|[,.;:!?]|$)/, "$1");
+}
+
+function extractParagraphText(content: unknown[]): string {
+  const nodes = content.filter((node): node is MirrorNode => Boolean(node && typeof node === "object"));
+  const parts: string[] = [];
+
+  for (let index = 0; index < nodes.length; index += 1) {
+    const node = nodes[index];
+    const next = nodes[index + 1];
+    const afterBreak = nodes[index + 2];
+
+    if (
+      hasMirrorMark(node, "bold") &&
+      next?.type === "hard_break" &&
+      hasMirrorMark(afterBreak, "link") &&
+      mirrorText(node) === mirrorText(afterBreak)
+    ) {
+      index += 1;
+      continue;
+    }
+
+    if (node.type === "hard_break") {
+      parts.push("\n");
+      continue;
+    }
+
+    if (node.type === "text" && typeof node.text === "string") {
+      parts.push(node.text);
+      continue;
+    }
+
+    const nested = extractMirrorText(node);
+    if (nested) parts.push(nested);
+  }
+
+  return collapseDuplicateLabel(parts.join(""));
+}
+
+function normalizeDescriptionText(text: string): string {
+  return text
+    .replace(/\n{3,}/g, "\n\n")
+    .split(/\n\n+/)
+    .map((block) => block.replace(/[ \t]+/g, " ").trim())
+    .filter(Boolean)
+    .join("\n\n")
+    .trim();
+}
+
 function extractMirrorText(node: unknown): string {
   if (!node || typeof node !== "object") return "";
-  const n = node as { type?: string; text?: string; content?: unknown[] };
+  const n = node as MirrorNode;
+
   if (n.type === "text" && typeof n.text === "string") return n.text;
+  if (n.type === "hard_break") return "\n";
+  if (n.type === "paragraph" || n.type === "heading") {
+    return Array.isArray(n.content) ? extractParagraphText(n.content) : "";
+  }
   if (!Array.isArray(n.content)) return "";
 
   const parts = n.content.map(extractMirrorText).filter(Boolean);
-  if (n.type === "paragraph" || n.type === "heading") return parts.join("");
-  return parts.join("\n");
+  if (n.type === "list_item") return parts.join("");
+  if (n.type === "bullet_list" || n.type === "ordered_list") {
+    return parts.map((item) => `• ${item}`).join("\n");
+  }
+
+  return parts.join("\n\n");
 }
 
 function parseDescriptionMirror(mirror: unknown): string {
-  if (typeof mirror === "string") return mirror.trim();
-  const text = extractMirrorText(mirror)
-    .split(/\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .join("\n\n");
-  return text.trim();
+  if (typeof mirror === "string") return normalizeDescriptionText(mirror);
+  return normalizeDescriptionText(extractMirrorText(mirror));
+}
+
+function parseFeaturingListItem(item: unknown): EventEnrichmentSpeaker | null {
+  if (!item || typeof item !== "object") return null;
+  const listItem = item as MirrorNode;
+  const paragraph = (Array.isArray(listItem.content) ? listItem.content[0] : listItem) as MirrorNode;
+  const nodes = (Array.isArray(paragraph?.content) ? paragraph.content : []) as MirrorNode[];
+
+  let name = "";
+  let linkedInUrl: string | undefined;
+  let roleLine = "";
+
+  for (const node of nodes) {
+    if (node.type !== "text" || typeof node.text !== "string") continue;
+    const linkMark = node.marks?.find((mark) => mark.type === "link");
+    const href = (linkMark as { attrs?: { href?: string } } | undefined)?.attrs?.href;
+    const isPersonLink = Boolean(href && /linkedin\.com\/in\//i.test(href));
+
+    if (isPersonLink && !name) {
+      name = node.text.trim();
+      linkedInUrl = href;
+      continue;
+    }
+
+    roleLine += node.text;
+  }
+
+  if (!name) return null;
+
+  roleLine = roleLine.replace(/^,\s*/, "").replace(/\s+/g, " ").trim();
+  const ofMatch = roleLine.match(/^(.+?)\s+of\s+(.+)$/i);
+
+  return {
+    name,
+    title: ofMatch?.[1]?.trim() || (roleLine || undefined),
+    company: ofMatch?.[2]?.trim(),
+    topic: roleLine || undefined,
+    linkedInUrl,
+    role: "speaker",
+  };
+}
+
+function extractFeaturingSpeakersFromMirror(mirror: unknown): EventEnrichmentSpeaker[] {
+  if (!mirror || typeof mirror !== "object") return [];
+  const doc = mirror as MirrorNode;
+  if (!Array.isArray(doc.content)) return [];
+
+  const speakers: EventEnrichmentSpeaker[] = [];
+  for (let index = 0; index < doc.content.length; index += 1) {
+    const node = doc.content[index] as MirrorNode;
+    if ((node.type !== "paragraph" && node.type !== "heading") || !Array.isArray(node.content)) continue;
+
+    const label = node.content
+      .map((child) => {
+        const piece = child as MirrorNode;
+        return piece.type === "text" && typeof piece.text === "string" ? piece.text : "";
+      })
+      .join("")
+      .trim();
+
+    if (!/^featuring$/i.test(label)) continue;
+
+    const list = doc.content[index + 1] as MirrorNode | undefined;
+    if (list?.type !== "bullet_list" || !Array.isArray(list.content)) continue;
+
+    for (const item of list.content) {
+      const speaker = parseFeaturingListItem(item);
+      if (speaker) speakers.push(speaker);
+    }
+  }
+
+  return speakers;
 }
 
 function lumaDescription(data: Record<string, unknown>, html: string, event: Record<string, unknown>): string {
@@ -252,6 +393,10 @@ function enrichFromLuma(html: string, url: string): EventEnrichment | null {
 
   for (const host of hosts) {
     pushPerson(speakerFromLumaPerson(host, "host"));
+  }
+
+  for (const featured of extractFeaturingSpeakersFromMirror(data.description_mirror)) {
+    pushPerson(featured);
   }
 
   const categories = (Array.isArray(data.categories) ? data.categories : []) as { name?: string }[];

@@ -1,4 +1,5 @@
 import type { ContentPlatform, EventSession } from "../models/types.js";
+import { resolveSessionTitle } from "./session.js";
 
 export type ContentPieceStatus = "not_started" | "in_progress" | "needs_review" | "reviewed";
 
@@ -120,7 +121,7 @@ export function buildContentHub(sessions: EventSession[]): ContentHubData {
         id: `${session.id}:${angle.id}`,
         angleId: angle.id,
         sessionId: session.id,
-        sessionTitle: session.title,
+        sessionTitle: resolveSessionTitle(session),
         sessionDateLabel: formatSessionDate(session.createdAt),
         title: angle.title,
         hook: angle.hook,
