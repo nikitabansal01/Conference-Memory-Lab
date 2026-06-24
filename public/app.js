@@ -214,11 +214,22 @@ async function boot() {
   if (authRequired && !publishableKey) {
     showAuthGate();
     const signInEl = document.getElementById("clerk-sign-in");
+    const setup = appConfig?.clerkSetup ?? {};
+    const missing = [];
+    if (!setup.hasPublishableKey) missing.push("CLERK_PUBLISHABLE_KEY");
+    if (!setup.hasSecretKey) missing.push("CLERK_SECRET_KEY");
+    const missingLine = missing.length
+      ? `Missing in Vercel: <code>${missing.join("</code>, <code>")}</code>.`
+      : "Clerk keys are not reaching the server.";
     if (signInEl) {
       signInEl.innerHTML = `
         <p class="auth-gate-message">
-          Sign-in is not configured yet. Add <code>CLERK_PUBLISHABLE_KEY</code> and
-          <code>CLERK_SECRET_KEY</code> in Vercel → Settings → Environment Variables, then redeploy.
+          ${missingLine} In Vercel → Settings → Environment Variables, add both keys for
+          <strong>Production</strong>, then redeploy. Names must match exactly.
+        </p>
+        <p class="auth-gate-message">
+          Check <a href="/api/config" target="_blank" rel="noopener">/api/config</a> after redeploy —
+          <code>clerkPublishableKey</code> should start with <code>pk_</code>.
         </p>`;
     }
     return;

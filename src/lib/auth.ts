@@ -21,12 +21,32 @@ export function isPublicApiPath(pathname: string): boolean {
 }
 
 export function isAuthConfigured(): boolean {
-  return Boolean(process.env.CLERK_SECRET_KEY?.trim());
+  return Boolean(getClerkSecretKey());
+}
+
+export function getClerkSecretKey(): string | null {
+  const key =
+    process.env.CLERK_SECRET_KEY?.trim() ||
+    process.env.CLERK_API_KEY?.trim();
+  return key || null;
 }
 
 export function getClerkPublishableKey(): string | null {
-  const key = process.env.CLERK_PUBLISHABLE_KEY?.trim();
+  const key =
+    process.env.CLERK_PUBLISHABLE_KEY?.trim() ||
+    process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.trim() ||
+    process.env.VITE_CLERK_PUBLISHABLE_KEY?.trim();
   return key || null;
+}
+
+export function getClerkSetupStatus(): {
+  hasPublishableKey: boolean;
+  hasSecretKey: boolean;
+} {
+  return {
+    hasPublishableKey: Boolean(getClerkPublishableKey()),
+    hasSecretKey: Boolean(getClerkSecretKey()),
+  };
 }
 
 export function getDevUserId(): string {
@@ -50,7 +70,7 @@ async function isEmailAllowed(userId: string): Promise<boolean> {
     .filter(Boolean);
   if (!allowed.length) return true;
 
-  const secretKey = process.env.CLERK_SECRET_KEY?.trim();
+  const secretKey = getClerkSecretKey();
   if (!secretKey) return true;
 
   const client = createClerkClient({ secretKey });
@@ -66,7 +86,7 @@ export async function authenticateRequest(authHeader?: string): Promise<RequestA
     return { userId: getDevUserId() };
   }
 
-  const secretKey = process.env.CLERK_SECRET_KEY?.trim();
+  const secretKey = getClerkSecretKey();
   if (!secretKey) {
     throw new AuthError("Authentication is not configured", 503);
   }

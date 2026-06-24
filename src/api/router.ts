@@ -40,7 +40,7 @@ import {
   MAX_CAPTURE_BYTES,
 } from "../lib/captures.js";
 import type { RequestAuth } from "../lib/auth.js";
-import { getClerkPublishableKey, isAuthConfigured } from "../lib/auth.js";
+import { getClerkPublishableKey, isAuthConfigured, getClerkSetupStatus } from "../lib/auth.js";
 
 const EVENT_TYPES: EventType[] = ["mixer", "panel", "conference", "webinar", "other"];
 
@@ -260,6 +260,7 @@ export async function routeApi(
       body: {
         clerkPublishableKey: getClerkPublishableKey(),
         authRequired: isAuthConfigured() || Boolean(process.env.VERCEL),
+        clerkSetup: getClerkSetupStatus(),
       },
     };
   }
