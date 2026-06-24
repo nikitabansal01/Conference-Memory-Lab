@@ -14,7 +14,7 @@ export class AuthError extends Error {
   }
 }
 
-const PUBLIC_API_PATHS = new Set(["/api/health", "/api/config", "/api/preview/session"]);
+const PUBLIC_API_PATHS = new Set(["/api/health", "/api/config"]);
 
 export function isPublicApiPath(pathname: string): boolean {
   return PUBLIC_API_PATHS.has(pathname);

@@ -12,7 +12,6 @@
 <body>
   <div id="auth-gate" class="auth-gate hidden">
     <div class="auth-gate-card">
-      <button type="button" class="auth-gate-close hidden" id="auth-gate-close" aria-label="Back to preview">×</button>
       <div class="auth-gate-brand">
         <span class="brand-mark" aria-hidden="true"></span>
         <div>
@@ -21,7 +20,6 @@
         </div>
       </div>
       <div id="clerk-sign-in"></div>
-      <p class="auth-gate-hint hidden" id="auth-gate-hint"></p>
     </div>
   </div>
 
@@ -65,15 +63,9 @@
     <div class="main-area">
       <header class="main-topbar" id="main-topbar">
         <div class="topbar-spacer"></div>
-        <div class="topbar-auth hidden" id="topbar-auth">
-          <button type="button" class="btn btn-ghost" id="btn-topbar-sign-in">Sign in</button>
-          <button type="button" class="btn btn-primary" id="btn-topbar-sign-up">Sign up free</button>
-        </div>
         <button type="button" class="btn btn-ghost topbar-tour-btn" id="btn-app-tour">App tour</button>
         <button type="button" class="btn btn-primary" id="btn-new-event">+ Add event</button>
       </header>
-
-      <div id="preview-banner" class="preview-banner hidden" role="status"></div>
 
       <main id="view-home" class="dashboard">
         <section class="hero" id="hero"></section>

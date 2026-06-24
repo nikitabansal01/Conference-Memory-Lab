@@ -452,84 +452,6 @@ body {
   color: var(--ink);
 }
 
-.auth-gate--overlay {
-  background: rgba(24, 20, 16, 0.55);
-  z-index: 200;
-}
-
-.auth-gate-close {
-  position: absolute;
-  top: 14px;
-  right: 14px;
-  width: 32px;
-  height: 32px;
-  border: none;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--muted);
-  font-size: 1.4rem;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.auth-gate-card {
-  position: relative;
-}
-
-.auth-gate-hint {
-  margin: 12px 0 0;
-  font-size: 0.88rem;
-  line-height: 1.5;
-  color: var(--muted);
-  text-align: center;
-}
-
-.preview-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin: 0 0 16px;
-  padding: 12px 16px;
-  border: 1px solid rgba(196, 106, 58, 0.25);
-  border-radius: 12px;
-  background: rgba(196, 106, 58, 0.08);
-  color: var(--ink);
-  font-size: 0.92rem;
-}
-
-.preview-banner p {
-  margin: 0;
-}
-
-.topbar-auth {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-right: 8px;
-}
-
-.sample-badge {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: rgba(196, 106, 58, 0.12);
-  color: var(--accent);
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.sample-session-banner {
-  margin: 0 0 12px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: rgba(196, 106, 58, 0.08);
-  color: var(--muted);
-  font-size: 0.88rem;
-}
-
 .capacity-info-btn {
   width: 18px;
   height: 18px;
@@ -982,30 +904,6 @@ body {
 
 .topbar-tour-btn {
   white-space: nowrap;
-}
-
-.sample-badge {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 12%, white);
-  color: var(--accent);
-  font-size: 0.68rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
-.sample-event-copy {
-  display: block;
-  color: var(--muted);
-  font-size: 0.88rem;
-  line-height: 1.45;
-}
-
-.latest-event-thumb.is-sample {
-  background: linear-gradient(145deg, #efe9dc, #e5dfd1);
-  border: 1px dashed color-mix(in srgb, var(--accent) 35%, var(--line));
 }
 
 /* Dashboard grid */

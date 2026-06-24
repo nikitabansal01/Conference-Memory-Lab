@@ -133,9 +133,6 @@ let walkthroughPaused = false;
 let walkthroughTargetEl = null;
 let clerkInstance = null;
 let appConfig = null;
-let previewMode = false;
-
-const SAMPLE_SESSION_ID = "f18cb72a-7ea1-4d1e-94e8-53e26029fd4d";
 
 async function getAuthHeaders(extraHeaders = {}) {
   const headers = { ...extraHeaders };
@@ -217,37 +214,21 @@ function loadClerkJs(publishableKey) {
   });
 }
 
-function showAuthGate(overlay = false) {
+function showAuthGate() {
   const gate = document.getElementById("auth-gate");
   gate?.classList.remove("hidden");
-  gate?.classList.toggle("auth-gate--overlay", overlay);
-  document.getElementById("auth-gate-close")?.classList.toggle("hidden", !overlay);
   document.getElementById("app-shell")?.classList.add("hidden");
 }
 
 function hideAuthGate() {
   const gate = document.getElementById("auth-gate");
   gate?.classList.add("hidden");
-  gate?.classList.remove("auth-gate--overlay");
-  document.getElementById("auth-gate-close")?.classList.add("hidden");
-  document.getElementById("auth-gate-hint")?.classList.add("hidden");
   document.getElementById("app-shell")?.classList.remove("hidden");
-}
-
-function closeAuthGate() {
-  hideAuthGate();
-  if (previewMode) {
-    window.history.replaceState(null, "", window.location.pathname);
-  }
 }
 
 function isSignInMode() {
   const mode = new URLSearchParams(window.location.search).get("mode");
   return mode === "signin" || mode === "signup";
-}
-
-function isSampleSessionId(id) {
-  return id === SAMPLE_SESSION_ID || id.startsWith("sample-") || id.startsWith(SAMPLE_SESSION_ID.slice(0, 8));
 }
 
 async function ensureClerkReady() {
@@ -260,8 +241,8 @@ async function ensureClerkReady() {
 }
 
 function bindClerkSignedInListener() {
-  if (!clerkInstance || clerkInstance.__previewListenerBound) return;
-  clerkInstance.__previewListenerBound = true;
+  if (!clerkInstance || clerkInstance.__signedInListenerBound) return;
+  clerkInstance.__signedInListenerBound = true;
   clerkInstance.addListener(({ user }) => {
     if (user) {
       onSignedIn().catch((err) => handleBootError(err, { authFailure: true }));
@@ -269,116 +250,10 @@ function bindClerkSignedInListener() {
   });
 }
 
-async function openAuthGate(mode = "signin", hint = "") {
-  try {
-    showAuthGate(true);
-    const hintEl = document.getElementById("auth-gate-hint");
-    if (hintEl) {
-      if (hint) {
-        hintEl.textContent = hint;
-        hintEl.classList.remove("hidden");
-      } else {
-        hintEl.classList.add("hidden");
-      }
-    }
-    showAuthLoading("Loading sign-in…");
-    await ensureClerkReady();
-    bindClerkSignedInListener();
-    const nextMode = mode === "signup" ? "signup" : "signin";
-    window.history.replaceState(null, "", nextMode === "signup" ? "/?mode=signup" : "/?mode=signin");
-    mountClerkAuthForms();
-  } catch (err) {
-    const signInEl = document.getElementById("clerk-sign-in");
-    const message = err instanceof Error ? err.message : "Sign-in failed to load.";
-    if (signInEl) {
-      signInEl.innerHTML = `
-        <p class="auth-gate-message">${escapeHtml(message)}</p>
-        <button type="button" class="btn btn-primary" onclick="location.reload()">Retry</button>`;
-    }
-  }
-}
-
 async function onSignedIn() {
-  previewMode = false;
   window.history.replaceState(null, "", "/");
   hideAuthGate();
-  document.getElementById("preview-banner")?.classList.add("hidden");
-  document.getElementById("topbar-auth")?.classList.add("hidden");
   await startApp();
-}
-
-function buildPreviewDashboardData() {
-  const data = buildFallbackDashboardData();
-  data.isPreview = true;
-  data.profile.name = "Guest";
-  data.featuredSession = {
-    ...data.featuredSession,
-    id: SAMPLE_SESSION_ID,
-    createdAt: "2026-06-22T23:49:22.035Z",
-    isSample: true,
-  };
-  data.sessions = [
-    {
-      id: SAMPLE_SESSION_ID,
-      title: "SF LLM Eval Mixer",
-      eventType: "mixer",
-      stage: "drafted",
-      createdAt: "2026-06-22T23:49:22.035Z",
-      dateLabel: "Jun 22",
-      nextTab: "think",
-      loopLabel: "Think",
-      pendingCount: 2,
-      hasEventLink: true,
-      peopleCount: 3,
-      claimsCount: 4,
-      ideasCount: 6,
-    },
-  ];
-  return data;
-}
-
-function renderPreviewChrome() {
-  if (document.getElementById("topbar-auth")?.dataset.bound === "true") return;
-
-  const banner = document.getElementById("preview-banner");
-  const topbarAuth = document.getElementById("topbar-auth");
-  banner?.classList.remove("hidden");
-  topbarAuth?.classList.remove("hidden");
-  if (banner) {
-    banner.innerHTML = `
-      <p><strong>Sample workspace</strong> — explore the app with example data. Sign up free to save your own events and notes.</p>
-      <button type="button" class="btn btn-primary btn-sm" id="btn-banner-sign-up">Sign up free</button>`;
-    banner.querySelector("#btn-banner-sign-up")?.addEventListener("click", () => {
-      openAuthGate("signup", "Create a free account to save your events and notes.");
-    });
-  }
-  document.getElementById("btn-topbar-sign-in")?.addEventListener("click", () => {
-    openAuthGate("signin");
-  });
-  document.getElementById("btn-topbar-sign-up")?.addEventListener("click", () => {
-    openAuthGate("signup", "Create a free account to save your events and notes.");
-  });
-  document.getElementById("auth-gate-close")?.addEventListener("click", closeAuthGate);
-  if (topbarAuth) topbarAuth.dataset.bound = "true";
-}
-
-async function startPreviewApp() {
-  previewMode = true;
-  hideAuthGate();
-  dashboardData = buildPreviewDashboardData();
-  renderHome();
-  renderPreviewChrome();
-  const publishableKey = appConfig?.clerkPublishableKey;
-  if (publishableKey) {
-    ensureClerkReady()
-      .then((clerk) => {
-        clerkInstance = clerk;
-        bindClerkSignedInListener();
-      })
-      .catch(() => {
-        /* Sign-in loads when user clicks Sign up */
-      });
-  }
 }
 
 async function signOut() {
@@ -508,11 +383,10 @@ async function boot() {
         await onSignedIn();
         return;
       }
+
+      showAuthGate();
+      mountClerkAuthForms();
     } catch (err) {
-      if (!isSignInMode()) {
-        await startPreviewApp();
-        return;
-      }
       showAuthGate();
       const signInEl = document.getElementById("clerk-sign-in");
       const message = err instanceof Error ? err.message : "Sign-in failed to load.";
@@ -522,10 +396,7 @@ async function boot() {
           <p class="auth-gate-message">If this keeps happening, disable ad blockers and refresh.</p>
           <button type="button" class="btn btn-primary" onclick="location.reload()">Retry</button>`;
       }
-      return;
     }
-
-    await startPreviewApp();
     return;
   }
 
@@ -632,8 +503,6 @@ async function loadDashboard() {
     apiError = err instanceof Error ? err.message : "Could not reach the server";
     dashboardData = buildFallbackDashboardData();
   }
-  document.getElementById("preview-banner")?.classList.add("hidden");
-  document.getElementById("topbar-auth")?.classList.add("hidden");
   renderHome();
   if (apiError && !wantsTour()) {
     showDashboardWarning(apiError);
@@ -678,7 +547,6 @@ function buildFallbackDashboardData() {
       eventType: "mixer",
       stage: "drafted",
       createdAt: new Date().toISOString(),
-      isSample: true,
       people: [{ id: "p1" }, { id: "p2" }, { id: "p3" }],
       stats: {
         peopleCount: 3,
@@ -697,7 +565,7 @@ function showDashboardWarning(message) {
   if (!hero || hero.querySelector(".dashboard-warning")) return;
   const note = document.createElement("p");
   note.className = "dashboard-warning field-hint";
-  note.textContent = `Live sync unavailable (${message}). You can still take the app tour and explore the sample event.`;
+  note.textContent = `Live sync unavailable (${message}). You can still take the app tour.`;
   hero.querySelector(".hero-headline")?.after(note);
 }
 
@@ -1116,15 +984,8 @@ function renderSidebarUser(d) {
 
 function buildHeroLead(d) {
   const session = d.featuredSession;
-  if (d.isPreview) {
-    return `<p class="hero-lead">You're viewing a sample workspace. Open the example event below, take the tour, then sign up to log your own.</p>`;
-  }
   if (!session) {
     return `<p class="hero-lead">Log a past event to start your five-step memory loop below.</p>`;
-  }
-
-  if (session.isSample) {
-    return `<p class="hero-lead">See how the loop works in the sample event below, then add your own.</p>`;
   }
 
   const { activeStep } = loopStepSummary(session);
@@ -1142,7 +1003,6 @@ function renderHero(d) {
 function renderLatestEvent(d) {
   const el = document.getElementById("latest-event");
   const session = d.featuredSession;
-  const isSample = Boolean(session?.isSample);
 
   if (!session) {
     el.innerHTML = `
@@ -1157,45 +1017,31 @@ function renderLatestEvent(d) {
   const whenLabel = formatWhenLabel(session.createdAt);
   const idea = stats.biggestIdea ?? getMatteredLine(session);
   const loopProgress = renderEventLoopProgress(session);
-  const kicker = isSample ? "Sample event" : `Latest event · ${escapeHtml(whenLabel)}`;
 
   el.innerHTML = `
-    <p class="section-kicker">${kicker}${isSample ? ' · <span class="sample-badge">Preview only</span>' : ""}</p>
+    <p class="section-kicker">Latest event · ${escapeHtml(whenLabel)}</p>
     <div class="latest-event-head">
-      <div class="latest-event-thumb${isSample ? " is-sample" : ""}" aria-hidden="true"></div>
+      <div class="latest-event-thumb" aria-hidden="true"></div>
       <div>
         <h2 class="section-title">${escapeHtml(session.title)}</h2>
         <p class="latest-event-stats">
-          ${
-            isSample
-              ? `<span class="sample-event-copy">Example of what a logged mixer looks like — add your own event to start your loop.</span>`
-              : `<span>${stats.peopleCount ?? session.people?.length ?? 0} people met</span>
+          <span>${stats.peopleCount ?? session.people?.length ?? 0} people met</span>
           <span class="dot">·</span>
-          <span>${stats.ideasCount ?? 0} ideas captured</span>`
-          }
+          <span>${stats.ideasCount ?? 0} ideas captured</span>
         </p>
       </div>
     </div>
     ${loopProgress}
     ${idea ? `
       <div class="insight-box">
-        <span class="insight-box-label">${isSample ? "Example insight" : "Yesterday's biggest idea"}</span>
+        <span class="insight-box-label">Yesterday's biggest idea</span>
         <p class="insight-box-text">"${escapeHtml(idea)}"</p>
       </div>` : ""}
     <div class="latest-event-actions">
-      ${
-        isSample
-          ? `<button type="button" class="btn btn-forest" id="btn-sample-add-event">Add your first event</button>
-             <button type="button" class="btn btn-text" id="btn-sample-preview-session">Preview sample session</button>`
-          : `<button type="button" class="btn btn-forest" data-open-session="${escapeHtml(session.id)}">Open full session →</button>
-             <button type="button" class="btn btn-text" data-view-ideas="${escapeHtml(session.id)}">View key ideas</button>`
-      }
+      <button type="button" class="btn btn-forest" data-open-session="${escapeHtml(session.id)}">Open full session →</button>
+      <button type="button" class="btn btn-text" data-view-ideas="${escapeHtml(session.id)}">View key ideas</button>
     </div>`;
 
-  el.querySelector("#btn-sample-add-event")?.addEventListener("click", openEventModal);
-  el.querySelector("#btn-sample-preview-session")?.addEventListener("click", () =>
-    openSession(session.id, "think")
-  );
   el.querySelector("[data-open-session]")?.addEventListener("click", () => openSession(session.id, "think"));
   el.querySelector("[data-view-ideas]")?.addEventListener("click", () => openSession(session.id, "think"));
   el.querySelectorAll(".event-loop-step[data-tab]").forEach((btn) => {
@@ -2098,10 +1944,6 @@ function formatWhenLabel(iso) {
 }
 
 async function openLensModal() {
-  if (previewMode) {
-    openAuthGate("signup", "Sign up to save your Unique Lens and personalize insights.");
-    return;
-  }
   const profile = await fetchJson("/api/profile");
   const form = document.getElementById("form-lens");
   form.name.value = profile.name ?? "";
@@ -2214,20 +2056,9 @@ function linesToArray(text) {
 }
 
 async function openSession(id, tab = "think") {
-  if (previewMode && !isSampleSessionId(id)) {
-    openAuthGate("signup", "Sign up to open and save your own events.");
-    return;
-  }
   try {
     activeTab = tab;
-    if (previewMode && isSampleSessionId(id)) {
-      currentSession = await fetch("/api/preview/session").then((res) => {
-        if (!res.ok) throw new Error("Could not load sample session");
-        return res.json();
-      });
-    } else {
-      currentSession = await fetchJson(`/api/sessions/${id}`);
-    }
+    currentSession = await fetchJson(`/api/sessions/${id}`);
     renderSessionView();
     showMainView("session");
   } catch (err) {
@@ -2249,13 +2080,8 @@ function renderSessionView() {
   }
 
   document.getElementById("session-event-context").innerHTML = `
-    ${session.isSample ? `<p class="sample-session-banner">Sample session — read-only preview. <button type="button" class="text-link-btn" id="btn-sample-signup">Sign up</button> to log your own events.</p>` : ""}
     <h1 class="session-title">${escapeHtml(sessionDisplayTitle(session))}</h1>
     <p class="session-meta">${escapeHtml(typeLabel)} · ${escapeHtml(whenLabel)}${metaExtras}</p>`;
-
-  document.getElementById("btn-sample-signup")?.addEventListener("click", () => {
-    openAuthGate("signup", "Create a free account to log your own events.");
-  });
 
   document.getElementById("btn-add-link-header")?.addEventListener("click", () =>
     openLinkModal(session.id, session.title)
@@ -2429,7 +2255,7 @@ function bindAttendPanel(session) {
   const uploadStatusEl = panel.querySelector("#attend-upload-status");
   const fileInput = panel.querySelector("#attend-file-input");
 
-  if (session.isSample || previewMode) {
+  if (session.isSample) {
     notesEl?.setAttribute("readonly", "readonly");
     panel.querySelector("#btn-save-attend-notes")?.setAttribute("disabled", "true");
     panel.querySelector("#btn-attend-upload")?.setAttribute("disabled", "true");
@@ -2681,10 +2507,6 @@ function handleAction(action) {
 }
 
 function openEventModal() {
-  if (previewMode) {
-    openAuthGate("signup", "Create a free account to log your first event.");
-    return;
-  }
   document.getElementById("form-error").classList.add("hidden");
   document.getElementById("form-warning").classList.add("hidden");
   document.getElementById("event-title-preview")?.classList.add("hidden");
