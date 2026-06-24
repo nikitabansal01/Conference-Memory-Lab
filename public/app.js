@@ -232,32 +232,36 @@ async function signOut() {
   window.location.reload();
 }
 
+function isSignUpRoute() {
+  const path = window.location.pathname.replace(/\/$/, "") || "/";
+  const hash = window.location.hash.replace(/^#/, "");
+  return path === "/sign-up" || hash === "/sign-up" || hash === "sign-up";
+}
+
 function mountClerkAuthForms() {
   const el = document.getElementById("clerk-sign-in");
   if (!el || !clerkInstance) return;
 
-  const baseUrl = `${window.location.origin}${window.location.pathname}${window.location.search}`;
-  const hashOptions = {
-    routing: "hash",
+  const homeUrl = `${window.location.origin}/`;
+  const pathOptions = {
+    routing: "path",
     signInUrl: "/sign-in",
     signUpUrl: "/sign-up",
-    afterSignInUrl: baseUrl,
-    afterSignUpUrl: baseUrl,
+    afterSignInUrl: homeUrl,
+    afterSignUpUrl: homeUrl,
   };
 
   const renderAuthView = () => {
-    const hash = window.location.hash.replace(/^#/, "");
-    const isSignUp = hash === "/sign-up" || hash === "sign-up";
     el.innerHTML = "";
-    if (isSignUp) {
-      clerkInstance.mountSignUp(el, hashOptions);
+    if (isSignUpRoute()) {
+      clerkInstance.mountSignUp(el, pathOptions);
     } else {
-      clerkInstance.mountSignIn(el, hashOptions);
+      clerkInstance.mountSignIn(el, pathOptions);
     }
   };
 
   renderAuthView();
-  window.addEventListener("hashchange", renderAuthView);
+  window.addEventListener("popstate", renderAuthView);
 }
 
 async function startApp() {

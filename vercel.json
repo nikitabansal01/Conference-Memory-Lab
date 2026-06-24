@@ -3,5 +3,11 @@
     "api/**/*.ts": {
       "includeFiles": "{src,profile,examples}/**"
     }
-  }
+  },
+  "rewrites": [
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
+    }
+  ]
 }
