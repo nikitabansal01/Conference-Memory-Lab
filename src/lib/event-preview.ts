@@ -54,7 +54,7 @@ function topicsFromSession(session: EventSession): string[] {
   if (fromThemes.length) return fromThemes;
 
   return session.claims
-    .map((c) => c.text.replace(/\[non-obvious\]\s*/i, "").trim())
+    .map((c) => (c.text ?? "").replace(/\[non-obvious\]\s*/i, "").trim())
     .filter(Boolean)
     .slice(0, 3);
 }

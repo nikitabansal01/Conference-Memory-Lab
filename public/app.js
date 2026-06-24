@@ -126,10 +126,36 @@ const WALKTHROUGH_STEPS = [
   },
 ];
 
+const WALKTHROUGH_COMPANION = {
+  lens: {
+    modalId: "modal-lens",
+    title: "Set up your Unique Lens",
+    body:
+      "Add learning goals and projects you're applying insights to. Save when you're ready — we'll move to the next tour step.",
+  },
+  event: {
+    modalId: "modal-event",
+    title: "Add your event",
+    body: "Paste the Luma or conference link first. We'll name the event and read the page for context.",
+  },
+  outcome: {
+    modalId: "modal-event-outcome",
+    title: "Confirm your intent",
+    body:
+      "Pick a suggestion or write why this event is worth your time, then save intent to continue the tour.",
+  },
+  connections: {
+    modalId: "modal-connections",
+    title: "Connections preview",
+    body: "These unlock as you review drafts. Close when you've seen the layout — the tour continues.",
+  },
+};
+
 let walkthroughStep = 0;
 let walkthroughLoopSub = 0;
 let walkthroughActive = false;
 let walkthroughPaused = false;
+let walkthroughCompanionMode = null;
 let walkthroughTargetEl = null;
 let clerkInstance = null;
 let appConfig = null;
@@ -1497,6 +1523,9 @@ async function openEventOutcomeModal(preview, sessionId, session, intentSuggesti
   const initial = preview ?? buildEventPreviewFallback(session);
   updateEventOutcomeModal(initial, intentSuggestions);
   document.getElementById("modal-event-outcome").showModal();
+  if (walkthroughActive && walkthroughStep === 2) {
+    enterWalkthroughCompanion("outcome");
+  }
 
   if (!previewNeedsEnrichment(initial, session)) return;
 
@@ -1812,21 +1841,63 @@ function hideWalkthroughOverlay() {
     "Link accounts to import events and publish — unlocked as you review drafts and earn trust.";
 }
 
-function pauseWalkthroughForModal() {
+function removeWalkthroughCompanion() {
+  document.querySelectorAll(".tour-companion").forEach((el) => el.remove());
+  walkthroughCompanionMode = null;
+}
+
+function injectWalkthroughCompanion(mode) {
+  removeWalkthroughCompanion();
+  const config = WALKTHROUGH_COMPANION[mode];
+  if (!config || !walkthroughActive) return;
+
+  const modal = document.getElementById(config.modalId);
+  if (!modal) return;
+
+  walkthroughCompanionMode = mode;
+  const kicker = `App tour · Step ${walkthroughStep + 1} of ${WALKTHROUGH_STEPS.length}`;
+  const el = document.createElement("aside");
+  el.className = "tour-companion";
+  el.setAttribute("role", "note");
+  el.innerHTML = `
+    <div class="tour-companion-head">
+      <p class="tour-companion-kicker">${escapeHtml(kicker)}</p>
+      <button type="button" class="tour-companion-skip" data-tour-companion-skip>Skip tour</button>
+    </div>
+    <strong class="tour-companion-title">${escapeHtml(config.title)}</strong>
+    <p class="tour-companion-body">${escapeHtml(config.body)}</p>`;
+
+  const footer = modal.querySelector(".modal-footer, .modal-footer-sticky");
+  if (footer) footer.before(el);
+  else modal.appendChild(el);
+
+  el.querySelector("[data-tour-companion-skip]")?.addEventListener("click", () => {
+    skipWalkthrough().catch((err) => alert(err.message ?? "Could not skip tour"));
+  });
+}
+
+function enterWalkthroughCompanion(mode) {
   if (!walkthroughActive) return;
   walkthroughPaused = true;
-  document.getElementById("walkthrough")?.classList.add("hidden");
   clearWalkthroughHighlight();
+  document.getElementById("walkthrough")?.classList.add("hidden");
+  injectWalkthroughCompanion(mode);
+}
+
+function exitWalkthroughCompanion() {
+  removeWalkthroughCompanion();
+  walkthroughPaused = false;
 }
 
 function resumeWalkthroughAfterModal() {
   if (!walkthroughActive) return;
-  walkthroughPaused = false;
+  exitWalkthroughCompanion();
   document.getElementById("walkthrough")?.classList.remove("hidden");
-  renderWalkthroughPanel();
+  showWalkthroughOverlay();
 }
 
 async function advanceWalkthroughStep(nextStep, nextLoopSub = 0) {
+  exitWalkthroughCompanion();
   walkthroughStep = nextStep;
   walkthroughLoopSub = nextLoopSub;
   if (walkthroughStep >= WALKTHROUGH_STEPS.length) {
@@ -1835,10 +1906,11 @@ async function advanceWalkthroughStep(nextStep, nextLoopSub = 0) {
   }
   await saveWalkthroughState({ step: walkthroughStep, loopSubStep: walkthroughLoopSub });
   showMainView("home");
-  renderWalkthroughPanel();
+  showWalkthroughOverlay();
 }
 
 async function completeWalkthrough(options = {}) {
+  removeWalkthroughCompanion();
   hideWalkthroughOverlay();
   if (!options.silent) {
     await saveWalkthroughState({ completed: true, step: WALKTHROUGH_STEPS.length, loopSubStep: 0 });
@@ -1846,6 +1918,7 @@ async function completeWalkthrough(options = {}) {
 }
 
 async function skipWalkthrough() {
+  removeWalkthroughCompanion();
   hideWalkthroughOverlay();
   await saveWalkthroughState({ skipped: true, completed: true, step: WALKTHROUGH_STEPS.length, loopSubStep: 0 });
 }
@@ -1867,15 +1940,12 @@ async function handleWalkthroughPrimary() {
 
   switch (step.primary.action) {
     case "lens":
-      pauseWalkthroughForModal();
       await openLensModal();
       break;
     case "event":
-      pauseWalkthroughForModal();
       openEventModal();
       break;
     case "connections":
-      pauseWalkthroughForModal();
       openConnectionsModal({ walkthroughPreview: true });
       break;
     case "next":
@@ -1904,6 +1974,7 @@ async function handleWalkthroughSecondary() {
 function maybeStartWalkthrough(d, force = false) {
   const forceTour = force || wantsTour();
   if (!forceTour && !d.showOnboarding) return;
+  if (walkthroughActive && !forceTour) return;
   walkthroughStep = forceTour ? 0 : (d.onboarding?.step ?? 0);
   walkthroughLoopSub = forceTour ? 0 : (d.onboarding?.loopSubStep ?? 0);
   if (walkthroughStep >= WALKTHROUGH_STEPS.length && !forceTour) return;
@@ -1955,6 +2026,9 @@ async function openLensModal() {
   form.pastPostExamples.value = arrayToLines(profile.pastPostExamples);
   document.getElementById("lens-error").classList.add("hidden");
   document.getElementById("modal-lens").showModal();
+  if (walkthroughActive && walkthroughStep === 0) {
+    enterWalkthroughCompanion("lens");
+  }
 }
 
 const INTEGRATIONS = [
@@ -2045,6 +2119,9 @@ function openConnectionsModal(options = {}) {
     document.getElementById("modal-connections")?.classList.remove("is-walkthrough-preview");
   }
   document.getElementById("modal-connections").showModal();
+  if (walkthroughActive && walkthroughStep === 4 && options.walkthroughPreview) {
+    enterWalkthroughCompanion("connections");
+  }
 }
 
 function arrayToLines(arr) {
@@ -2216,7 +2293,7 @@ function renderAttend(session) {
         </div>
         <div>
           <h3>Claims</h3>
-          ${claims.slice(0, 6).map((c) => `<div class="claim"><div>${escapeHtml(c.text.replace("[non-obvious] ", ""))}</div></div>`).join("")}
+          ${claims.slice(0, 6).map((c) => `<div class="claim"><div>${escapeHtml(formatClaimText(c.text))}</div></div>`).join("")}
         </div>
       </div>
     </details>` : `
@@ -2662,6 +2739,9 @@ function openEventModal() {
   document.getElementById("event-url-status").textContent = "We'll read the public page for title and context.";
   bindEventUrlPreview();
   document.getElementById("modal-event").showModal();
+  if (walkthroughActive && walkthroughStep === 2) {
+    enterWalkthroughCompanion("event");
+  }
 }
 
 let eventUrlPreviewTimer = null;
@@ -2752,10 +2832,14 @@ function openLinkModal(sessionId, eventTitle) {
   document.getElementById("modal-link").showModal();
 }
 
+function formatClaimText(text) {
+  return String(text ?? "").replace(/\[non-obvious\]\s*/i, "").trim();
+}
+
 function getMatteredLine(session) {
-  const claim = session.claims?.find((c) => c.text.includes("[non-obvious]"));
-  if (claim) return claim.text.replace("[non-obvious] ", "");
-  if (session.themes?.[0]) return session.themes[0].label;
+  const claim = session.claims?.find((c) => c.text?.includes("[non-obvious]"));
+  if (claim?.text) return formatClaimText(claim.text);
+  if (session.themes?.[0]?.label) return session.themes[0].label;
   return "Capture what stood out from this event.";
 }
 
@@ -2837,15 +2921,9 @@ document.getElementById("btn-app-tour")?.addEventListener("click", () => {
 });
 document.getElementById("btn-cancel-event").addEventListener("click", () => {
   document.getElementById("modal-event").close();
-  if (walkthroughActive && walkthroughPaused && walkthroughStep === 2) {
-    resumeWalkthroughAfterModal();
-  }
 });
 document.getElementById("btn-cancel-lens").addEventListener("click", () => {
   document.getElementById("modal-lens").close();
-  if (walkthroughActive && walkthroughPaused && walkthroughStep === 0) {
-    resumeWalkthroughAfterModal();
-  }
 });
 document.getElementById("btn-close-connections").addEventListener("click", () => document.getElementById("modal-connections").close());
 document.getElementById("btn-cancel-link").addEventListener("click", () => document.getElementById("modal-link").close());
@@ -2944,14 +3022,14 @@ document.getElementById("form-event").addEventListener("submit", async (e) => {
     errEl.classList.remove("hidden");
     return;
   }
+  if (walkthroughActive && walkthroughStep === 2) {
+    exitWalkthroughCompanion();
+  }
   document.getElementById("modal-event").close();
   form.reset();
   document.getElementById("event-title-preview")?.classList.add("hidden");
   await loadDashboard();
   if (result.session?.id) {
-    if (walkthroughActive && walkthroughStep === 2) {
-      pauseWalkthroughForModal();
-    }
     openEventOutcomeModal(result.eventPreview, result.session.id, result.session, result.intentSuggestions);
   }
 });
@@ -3017,10 +3095,10 @@ document.getElementById("form-lens").addEventListener("submit", async (e) => {
     return;
   }
   if (walkthroughActive && walkthroughStep === 0) {
+    exitWalkthroughCompanion();
+    document.getElementById("modal-lens").close();
     await loadDashboard();
     await advanceWalkthroughStep(1, 0);
-    document.getElementById("modal-lens").close();
-    resumeWalkthroughAfterModal();
     return;
   }
   document.getElementById("modal-lens").close();
@@ -3029,9 +3107,6 @@ document.getElementById("form-lens").addEventListener("submit", async (e) => {
 
 document.getElementById("btn-close-event-outcome").addEventListener("click", () => {
   document.getElementById("modal-event-outcome").close();
-  if (walkthroughActive && walkthroughPaused && walkthroughStep === 2) {
-    resumeWalkthroughAfterModal();
-  }
 });
 document.getElementById("btn-outcome-continue").addEventListener("click", async () => {
   const intent = document.getElementById("event-intent-input")?.value?.trim();
@@ -3047,10 +3122,10 @@ document.getElementById("btn-outcome-continue").addEventListener("click", async 
     });
   }
   if (walkthroughActive && walkthroughStep === 2) {
+    exitWalkthroughCompanion();
+    document.getElementById("modal-event-outcome").close();
     await loadDashboard();
     await advanceWalkthroughStep(3, 0);
-    document.getElementById("modal-event-outcome").close();
-    resumeWalkthroughAfterModal();
     return;
   }
   document.getElementById("modal-event-outcome").close();
@@ -3081,8 +3156,23 @@ document.getElementById("walkthrough-skip")?.addEventListener("click", () => {
 window.addEventListener("resize", repositionWalkthroughHighlight);
 window.addEventListener("scroll", repositionWalkthroughHighlight, true);
 
+document.getElementById("modal-lens")?.addEventListener("close", () => {
+  if (walkthroughActive && walkthroughCompanionMode === "lens") {
+    resumeWalkthroughAfterModal();
+  }
+});
+document.getElementById("modal-event")?.addEventListener("close", () => {
+  if (walkthroughActive && walkthroughCompanionMode === "event") {
+    resumeWalkthroughAfterModal();
+  }
+});
+document.getElementById("modal-event-outcome")?.addEventListener("close", () => {
+  if (walkthroughActive && walkthroughCompanionMode === "outcome") {
+    resumeWalkthroughAfterModal();
+  }
+});
 document.getElementById("modal-connections")?.addEventListener("close", () => {
-  if (walkthroughActive && walkthroughStep === 4) {
+  if (walkthroughActive && walkthroughCompanionMode === "connections") {
     resumeWalkthroughAfterModal();
   }
 });

@@ -54,8 +54,8 @@ export interface ApiResult {
 }
 
 function getBiggestIdea(session: EventSession): string | null {
-  const nonObvious = session.claims.find((c) => c.text.includes("[non-obvious]"));
-  if (nonObvious) return nonObvious.text.replace("[non-obvious] ", "");
+  const nonObvious = session.claims.find((c) => c.text?.includes("[non-obvious]"));
+  if (nonObvious?.text) return nonObvious.text.replace(/\[non-obvious\]\s*/i, "");
   if (session.themes[0]) return session.themes[0].label;
   return null;
 }

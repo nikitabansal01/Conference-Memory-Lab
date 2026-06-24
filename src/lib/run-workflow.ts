@@ -54,6 +54,44 @@ function assertMinStage(session: EventSession, workflow: RunnableWorkflow): void
   }
 }
 
+function normalizeWorkflowUpdate(
+  workflow: RunnableWorkflow,
+  update: Partial<EventSession>
+): Partial<EventSession> {
+  if (workflow !== "extract") return update;
+
+  const people = (update.people ?? [])
+    .filter((p) => p && String(p.name ?? "").trim())
+    .map((p, i) => ({
+      ...p,
+      id: p.id || `person-${i + 1}`,
+      name: String(p.name).trim(),
+      role: p.role ?? "unknown",
+      metInPerson: Boolean(p.metInPerson),
+    }));
+
+  const claims = (update.claims ?? [])
+    .filter((c) => c && String(c.text ?? "").trim())
+    .map((c, i) => ({
+      ...c,
+      id: c.id || `claim-${i + 1}`,
+      text: String(c.text).trim(),
+      confidence: c.confidence ?? "medium",
+      sources: Array.isArray(c.sources) ? c.sources : [],
+    }));
+
+  const themes = (update.themes ?? [])
+    .filter((t) => t && String(t.label ?? "").trim())
+    .map((t, i) => ({
+      ...t,
+      id: t.id || `theme-${i + 1}`,
+      label: String(t.label).trim(),
+      claimIds: Array.isArray(t.claimIds) ? t.claimIds : [],
+    }));
+
+  return { ...update, people, claims, themes };
+}
+
 function mergeCritiqueExtras(
   session: EventSession,
   update: Record<string, unknown>
@@ -129,7 +167,7 @@ export async function runSessionWorkflow(
   const raw = await callLlm(bundle.systemPrompt, userPrompt);
   const parsed = parseJsonFromLlm(raw);
   const critiqueMerged = workflow === "self-critique" ? mergeCritiqueExtras(session, parsed) : parsed;
-  const update = critiqueMerged as Partial<EventSession>;
+  const update = normalizeWorkflowUpdate(workflow, critiqueMerged as Partial<EventSession>);
   const { stage: _ignored, ...updateWithoutStage } = update;
 
   const merged = mergeSessionUpdate(session, updateWithoutStage);
