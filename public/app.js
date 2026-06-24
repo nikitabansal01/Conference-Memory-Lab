@@ -232,6 +232,34 @@ async function signOut() {
   window.location.reload();
 }
 
+function mountClerkAuthForms() {
+  const el = document.getElementById("clerk-sign-in");
+  if (!el || !clerkInstance) return;
+
+  const baseUrl = `${window.location.origin}${window.location.pathname}${window.location.search}`;
+  const authOptions = {
+    routing: "hash",
+    afterSignInUrl: baseUrl,
+    afterSignUpUrl: baseUrl,
+    signInUrl: `${baseUrl}#/sign-in`,
+    signUpUrl: `${baseUrl}#/sign-up`,
+  };
+
+  const renderAuthView = () => {
+    const hash = window.location.hash.replace(/^#/, "");
+    const isSignUp = hash === "/sign-up" || hash === "sign-up";
+    el.innerHTML = "";
+    if (isSignUp) {
+      clerkInstance.mountSignUp(el, authOptions);
+    } else {
+      clerkInstance.mountSignIn(el, authOptions);
+    }
+  };
+
+  renderAuthView();
+  window.addEventListener("hashchange", renderAuthView);
+}
+
 async function startApp() {
   await loadDashboard();
   if (wantsTour()) {
@@ -294,11 +322,7 @@ async function boot() {
             startApp().catch((err) => handleBootError(err, { authFailure: true }));
           }
         });
-        clerkInstance.mountSignIn(document.getElementById("clerk-sign-in"), {
-          afterSignInUrl: window.location.href,
-          afterSignUpUrl: window.location.href,
-          signUpUrl: window.location.href,
-        });
+        mountClerkAuthForms();
         return;
       }
     } catch (err) {
