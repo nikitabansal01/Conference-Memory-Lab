@@ -1247,39 +1247,16 @@ function buildCapacitySidebarClient(d) {
 }
 
 function buildLearningStreakClient(d) {
+  const streak = d.learningStreak;
+  if (streak?.week?.length === 7 && typeof streak.activeDays === "number") {
+    return { activeDays: streak.activeDays, week: streak.week };
+  }
+
   const dayLabels = ["M", "T", "W", "T", "F", "S", "S"];
-  const today = new Date();
-  const day = today.getDay();
-  const monday = new Date(today);
-  monday.setHours(0, 0, 0, 0);
-  monday.setDate(today.getDate() - (day === 0 ? 6 : day - 1));
-
-  const activeDates = new Set();
-  for (const session of d.sessions ?? []) {
-    const key = (session.updatedAt ?? session.createdAt ?? "").slice(0, 10);
-    if (key) activeDates.add(key);
-  }
-
-  const week = dayLabels.map((label, index) => {
-    const date = new Date(monday);
-    date.setDate(monday.getDate() + index);
-    return {
-      label,
-      active: activeDates.has(date.toISOString().slice(0, 10)),
-    };
-  });
-
-  let activeDays = d.learningStreak?.activeDays ?? 0;
-  if (!activeDays) {
-    const cursor = new Date(today);
-    cursor.setHours(0, 0, 0, 0);
-    while (activeDates.has(cursor.toISOString().slice(0, 10))) {
-      activeDays += 1;
-      cursor.setDate(cursor.getDate() - 1);
-    }
-  }
-
-  return { activeDays, week };
+  return {
+    activeDays: 0,
+    week: dayLabels.map((label) => ({ label, active: false })),
+  };
 }
 
 function renderCapacityCard(d) {
