@@ -36,6 +36,20 @@ function formatProfile(profile: ExpertiseProfile): string {
 }
 
 function formatSessionContext(session: EventSession, workflow: WorkflowName): string {
+  const eventPageContext = session.eventEnrichment
+    ? {
+        title: session.eventEnrichment.title,
+        description: session.eventEnrichment.description,
+        topics: session.eventEnrichment.topics,
+        hosts: session.eventEnrichment.speakers.filter((s) => s.role === "host"),
+        speakers:
+          workflow === "extract"
+            ? session.eventEnrichment.speakers.filter((s) => s.role !== "host")
+            : undefined,
+        attendeeCount: session.eventEnrichment.attendeeCount,
+      }
+    : undefined;
+
   const payload: Record<string, unknown> = {
     id: session.id,
     title: session.title,
@@ -44,13 +58,7 @@ function formatSessionContext(session: EventSession, workflow: WorkflowName): st
     location: session.location,
     attendanceIntent: session.attendanceIntent,
     eventPageContext: session.eventEnrichment
-      ? {
-          title: session.eventEnrichment.title,
-          description: session.eventEnrichment.description,
-          topics: session.eventEnrichment.topics,
-          hosts: session.eventEnrichment.speakers.filter((s) => s.role === "host"),
-          attendeeCount: session.eventEnrichment.attendeeCount,
-        }
+      ? eventPageContext
       : undefined,
     rawNotes: session.rawNotes,
     screenshotDescriptions: session.screenshotDescriptions,

@@ -26,13 +26,15 @@ Return JSON updating these session fields:
 
 ```json
 {
-  "people": [],
-  "interactions": [],
-  "claims": [],
-  "themes": [],
+  "people": [{ "id": "...", "name": "...", "role": "speaker|attendee|organizer|unknown", "metInPerson": false }],
+  "interactions": [{ "id": "...", "personId": "...", "summary": "...", "topics": [], "sources": [] }],
+  "claims": [{ "id": "...", "text": "Full claim sentence — required", "sources": [{ "type": "note", "ref": "..." }], "confidence": "high|medium|low" }],
+  "themes": [{ "id": "...", "label": "...", "claimIds": [] }],
   "stage": "extracted"
 }
 ```
+
+Every claim **must** include a non-empty `text` string. Do not use `statement`, `content`, or other field names.
 
 ---
 
