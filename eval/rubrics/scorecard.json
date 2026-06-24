@@ -1,52 +1,56 @@
 {
   "name": "Conference Memory Lab Eval Rubrics",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "dimensions": {
     "grounding": {
       "description": "Every statement in output is traceable to a claim with source ref",
-      "scale": "0-100",
+      "scale": "1-5",
       "thresholds": {
-        "pass": 80,
-        "excellent": 95
+        "pass": 4,
+        "excellent": 5
       },
       "scoringGuide": {
-        "90-100": "All claims cited; no hallucinated quotes or attendees",
-        "70-89": "Mostly grounded; 1-2 unsupported statements",
-        "50-69": "Mix of grounded and generic filler",
-        "0-49": "Mostly generic or invented content"
+        "5": "All claims cited; no hallucinated quotes or attendees",
+        "4": "Mostly grounded; 1-2 unsupported statements",
+        "3": "Mix of grounded and generic filler",
+        "2": "Several unsupported or generic lines",
+        "1": "Mostly generic or invented content"
       }
     },
     "voice": {
       "description": "Output matches user's voiceTraits and pastPostExamples — conversational, plain English, no emojis",
-      "scale": "0-100",
-      "thresholds": { "pass": 70, "excellent": 90 },
+      "scale": "1-5",
+      "thresholds": { "pass": 3, "excellent": 5 },
       "scoringGuide": {
-        "90-100": "Indistinguishable from user's corpus; no emojis; conversational not corporate",
-        "70-89": "Recognizably user-like; minor AI tells",
-        "50-69": "Professional but generic or too jargon-heavy",
-        "0-49": "Generic AI voice or uses emojis against preference"
+        "5": "Indistinguishable from user's corpus; no emojis; conversational not corporate",
+        "4": "Recognizably user-like; minor AI tells",
+        "3": "Professional but generic or too jargon-heavy",
+        "2": "Noticeable AI tone or style mismatch",
+        "1": "Generic AI voice or uses emojis against preference"
       }
     },
     "expertiseLens": {
       "description": "PM/HCD/healthcare/eval perspective is visible and additive",
-      "scale": "0-100",
-      "thresholds": { "pass": 75, "excellent": 92 },
+      "scale": "1-5",
+      "thresholds": { "pass": 4, "excellent": 5 },
       "scoringGuide": {
-        "90-100": "Insight only this user would write",
-        "75-89": "Clear expertise angle applied",
-        "50-74": "Surface-level industry mention",
-        "0-49": "Could be written by anyone"
+        "5": "Insight only this user would write",
+        "4": "Clear expertise angle applied",
+        "3": "Surface-level industry mention",
+        "2": "Vague or generic professional framing",
+        "1": "Could be written by anyone"
       }
     },
     "nonObviousness": {
       "description": "Adds insight beyond restating event content",
-      "scale": "0-100",
-      "thresholds": { "pass": 65, "excellent": 88 },
+      "scale": "1-5",
+      "thresholds": { "pass": 3, "excellent": 5 },
       "scoringGuide": {
-        "88-100": "Surprising connection or implication",
-        "65-87": "Solid reframing beyond recap",
-        "40-64": "Mostly recap with light commentary",
-        "0-39": "Event summary only"
+        "5": "Surprising connection or implication",
+        "4": "Solid reframing beyond recap",
+        "3": "Mostly recap with light commentary",
+        "2": "Generic event summary with minimal insight",
+        "1": "Event summary only"
       }
     }
   },

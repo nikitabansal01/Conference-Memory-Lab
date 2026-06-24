@@ -118,7 +118,7 @@ export async function buildWorkflowPrompt(
       : "";
   const reviewFocus =
     workflow === "self-critique"
-      ? "\n## Review focus\nReturn `evalRubric` with a rubric **band** and justification per dimension (not final 0–100 scores). The server calibrates scores from bands plus measurable draft signals (claim coverage, theme linkage, voice flags).\n"
+      ? "\n## Review focus\nReturn `evalScores` with an integer **1–5 score** and a one-sentence justification per dimension. Use the full scale — reserve 5 for excellent drafts and 1–2 for serious issues.\n"
       : "";
 
   const userContext = [

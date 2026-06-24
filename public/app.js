@@ -2974,6 +2974,10 @@ async function runSessionWorkflow(sessionId, workflow, statusEl, onSuccess) {
       method: "POST",
     });
     currentSession = data.session;
+    if (workflow === "self-critique") {
+      setActiveTab("review");
+      openStepSection(currentSession.id, "review", "scores");
+    }
     if (statusEl) {
       statusEl.textContent = data.leveledUp ? "Done — level up!" : "Done";
     }
@@ -3601,18 +3605,25 @@ function bindCreatePanel(session) {
   });
 }
 
-function evalScoresNeedRerun(evalScores) {
-  if (!evalScores) return false;
-  return !String(evalScores.notes ?? "").includes("material coverage");
+function openStepSection(sessionId, stepKey, sectionKey) {
+  attendCollapseBySession.set(stepCollapseStorageKey(sessionId, stepKey, sectionKey), true);
+}
+
+function normalizeReviewScore(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  if (n > 5) return Math.max(1, Math.min(5, Math.round(n / 20)));
+  return Math.max(1, Math.min(5, Math.round(n)));
 }
 
 function scoreTone(value) {
-  if (value >= 80) return "good";
-  if (value >= 65) return "ok";
+  const score = normalizeReviewScore(value);
+  if (score >= 4) return "good";
+  if (score >= 3) return "ok";
   return "low";
 }
 
-const REVIEW_SCORE_MAX = 100;
+const REVIEW_SCORE_MAX = 5;
 
 const REVIEW_SCORE_KEYS = [
   { key: "grounding", label: "Grounding" },
@@ -3625,12 +3636,12 @@ function renderReviewScoreCriteriaNote() {
   return `
     <div class="review-score-criteria">
       <p class="review-score-criteria-heading">Evaluation criteria</p>
-      <p class="review-score-scale">Each dimension is scored 0–100 by combining rubric bands from Review with measurable draft signals (claim coverage, theme linkage, expertise mentions, voice flags).</p>
+      <p class="review-score-scale">Each dimension is scored 1–5 (5 = excellent, 3 = acceptable, 1 = poor). Pass threshold is 4+.</p>
       <ul class="review-score-criteria-list">
-        <li><strong>Grounding</strong> — statements traceable to your notes and claims, not invented quotes or attendees (pass 80+).</li>
-        <li><strong>Voice</strong> — reads like your past posts: conversational, plain English, no generic AI tone (pass 70+).</li>
-        <li><strong>Expertise</strong> — your PM/HCD/healthcare/eval angle is visible and additive, not surface-level (pass 75+).</li>
-        <li><strong>Non-obvious</strong> — adds insight or reframing beyond an event recap (pass 65+).</li>
+        <li><strong>Grounding</strong> — statements traceable to your notes and claims, not invented quotes or attendees.</li>
+        <li><strong>Voice</strong> — reads like your past posts: conversational, plain English, no generic AI tone.</li>
+        <li><strong>Expertise</strong> — your PM/HCD/healthcare/eval angle is visible and additive, not surface-level.</li>
+        <li><strong>Non-obvious</strong> — adds insight or reframing beyond an event recap.</li>
       </ul>
     </div>`;
 }
@@ -3639,7 +3650,6 @@ function renderReviewScoresBody(session) {
   const e = session.evalScores;
   const hasDrafts = (session.contentDrafts ?? []).length > 0;
   const criteriaNote = renderReviewScoreCriteriaNote();
-  const staleScores = evalScoresNeedRerun(e);
 
   if (session.stage === "synthesized") {
     return `${renderFlowEmpty("Run Create first — then review scores appear here…")}${criteriaNote}`;
@@ -3652,10 +3662,9 @@ function renderReviewScoresBody(session) {
   }
 
   return `
-    ${staleScores ? `<p class="review-score-stale">Earlier scores used an uncalibrated format — re-run Review for signal-based scoring.</p>` : ""}
     <div class="score-grid score-grid-modern flow-score-grid">
       ${REVIEW_SCORE_KEYS.map(({ key, label }) =>
-        scoreCell(label, e[key], scoreTone(e[key]), e.justifications?.[key])
+        scoreCell(label, normalizeReviewScore(e[key]), scoreTone(e[key]), e.justifications?.[key])
       ).join("")}
     </div>
     ${e.notes ? `<p class="flow-prose flow-review-note">${escapeHtml(e.notes)}</p>` : ""}
@@ -3666,12 +3675,11 @@ function renderReviewActionsBody(session) {
   const hasDrafts = (session.contentDrafts ?? []).length > 0;
   const canRunReview =
     (session.stage === "drafted" || session.stage === "reviewed") && hasDrafts;
-  const needsRun = !session.evalScores || evalScoresNeedRerun(session.evalScores);
 
   if (session.stage === "synthesized") {
     return `<p class="step-footer-hint">Complete Create on the previous tab first…</p>`;
   }
-  if (!canRunReview || !needsRun) return "";
+  if (!canRunReview) return "";
 
   const label = session.evalScores ? "Re-run Review" : "Run Review";
 

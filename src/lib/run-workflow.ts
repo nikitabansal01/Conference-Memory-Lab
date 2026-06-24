@@ -97,6 +97,10 @@ function normalizeWorkflowUpdate(
     return finalized;
   }
 
+  if (workflow === "self-critique") {
+    return {};
+  }
+
   return update;
 }
 
@@ -180,13 +184,11 @@ export async function runSessionWorkflow(
   let update = normalizeWorkflowUpdate(workflow, session, parsed as Partial<EventSession>);
 
   if (workflow === "self-critique") {
-    const evalScores = appendCritiqueNotes(
-      computeEvalScores(session, profile, parsed),
-      parsed
-    );
-    if (evalScores) {
-      update = { ...update, evalScores };
+    const evalScores = appendCritiqueNotes(computeEvalScores(parsed), parsed);
+    if (!evalScores) {
+      throw new Error("Review could not produce evaluation scores — try again.");
     }
+    update = { evalScores };
   }
 
   const { stage: _ignored, ...updateWithoutStage } = update;

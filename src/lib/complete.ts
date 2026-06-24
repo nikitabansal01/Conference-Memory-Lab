@@ -39,7 +39,7 @@ export function mergeSessionUpdate(
       update.followUpDrafts !== undefined ? asArray(update.followUpDrafts) : asArray(session.followUpDrafts),
     contentDrafts:
       update.contentDrafts !== undefined ? asArray(update.contentDrafts) : asArray(session.contentDrafts),
-    evalScores: update.evalScores ?? session.evalScores,
+    evalScores: "evalScores" in update ? update.evalScores : session.evalScores,
   };
 }
 
