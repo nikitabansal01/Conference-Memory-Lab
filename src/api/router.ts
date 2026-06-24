@@ -19,7 +19,7 @@ import {
 } from "../trust/levels.js";
 import { formatLevelBadge } from "../gamification/xp.js";
 import type { EventSession, EventType, ExpertiseProfile, TrustLevel } from "../models/types.js";
-import { createSession } from "../lib/session.js";
+import { createSession, applyEnrichmentTitle, resolveSessionTitle, titleFromEnrichment } from "../lib/session.js";
 import { getProfileStatus } from "../lib/profile-status.js";
 import { buildActionItems, buildAllActionItems, buildSessionActionItems, capabilitiesUnlocked, eventLinkNudge, sessionLoopLabel, sessionNextTab } from "../lib/actions.js";
 import { buildContentHub } from "../lib/content-hub.js";
@@ -128,13 +128,13 @@ async function ensureEventEnrichment(session: EventSession, force = false): Prom
 async function handleDashboard(): Promise<ApiResult> {
   const storedProgress = await loadProgress();
   const sessions = await listSessions();
-  const hadOnboarding = Boolean(storedProgress.onboarding);
-  const normalized = normalizeOnboarding(storedProgress, sessions.length);
+  const normalized = normalizeOnboarding(storedProgress);
   let progress = normalized.progress;
-  if (!hadOnboarding && normalized.onboarding.completed) {
+  if (normalized.shouldPersist) {
     await saveProgress(progress);
   }
   const onboarding = normalized.onboarding;
+  const hasUserEvents = sessions.length > 0;
   const profile = await loadProfileOrExample();
   const resume = await loadResume();
   const levelDef = getLevelDefinition(progress.level);
@@ -186,7 +186,7 @@ async function handleDashboard(): Promise<ApiResult> {
       capacitySidebar,
       sessions: timelineSessions.map((s) => ({
         id: s.id,
-        title: s.title,
+        title: resolveSessionTitle(s),
         eventType: s.eventType,
         stage: s.stage,
         createdAt: s.createdAt,
@@ -203,6 +203,7 @@ async function handleDashboard(): Promise<ApiResult> {
       featuredSession: featured
         ? {
             ...featured,
+            isSample: !hasUserEvents,
             eventLinkNudge: eventLinkNudge(featured),
             eventLinkInfo: featured.eventUrl ? parseEventUrl(featured.eventUrl) : null,
             stats: {
@@ -212,6 +213,7 @@ async function handleDashboard(): Promise<ApiResult> {
             },
           }
         : null,
+      hasUserEvents,
       lensImpact: getLensImpact(profile, featured),
       nextUnlock: next.next
         ? {
@@ -243,6 +245,7 @@ export async function routeApi(
       loopSubStep: number;
       completed: boolean;
       skipped: boolean;
+      explicit: boolean;
     }>;
 
     const progress = await loadProgress();
@@ -365,19 +368,28 @@ export async function routeApi(
     }
 
     const progress = await loadProgress();
-    let savedSession: EventSession;
     let updatedProgress = progress;
 
+    let enrichment = null;
+    if (eventUrl) {
+      enrichment = await enrichEventFromUrl(eventUrl);
+    }
+
+    const sessionTitle =
+      titleFromEnrichment(enrichment) || body.title?.trim() || "Event";
+
     const { session, progress: updated } = createSession({
-      title: body.title?.trim() || "Event",
+      title: sessionTitle,
       eventType: body.eventType ?? "mixer",
       rawNotes: body.rawNotes.trim(),
       eventUrl,
-      location: body.location?.trim(),
+      location: body.location?.trim() || enrichment?.location,
       userProgress: progress,
     });
     updatedProgress = updated;
-    savedSession = session;
+    let savedSession: EventSession = enrichment
+      ? { ...session, eventEnrichment: enrichment }
+      : session;
 
     if (body.attendanceIntent?.trim()) {
       savedSession = { ...savedSession, attendanceIntent: body.attendanceIntent.trim() };
@@ -385,14 +397,6 @@ export async function routeApi(
 
     await saveSession(savedSession);
     await saveProgress(updatedProgress);
-
-    if (eventUrl) {
-      savedSession = await ensureEventEnrichment(savedSession, true);
-      if (savedSession.eventEnrichment?.title) {
-        savedSession = { ...savedSession, title: savedSession.eventEnrichment.title };
-      }
-      await saveSession(savedSession);
-    }
 
     const profile = await loadProfileOrExample();
     const intentSuggestions = savedSession.eventEnrichment
@@ -467,10 +471,7 @@ export async function routeApi(
     await saveSession(updated);
     let savedSession = updated;
     if (hasEventUrl) {
-      savedSession = await ensureEventEnrichment(updated, true);
-      if (savedSession.eventEnrichment?.title) {
-        savedSession = { ...savedSession, title: savedSession.eventEnrichment.title };
-      }
+      savedSession = applyEnrichmentTitle(await ensureEventEnrichment(updated, true));
       await saveSession(savedSession);
     }
 
@@ -650,10 +651,7 @@ export async function routeApi(
       return { status: 400, body: { error: "No event URL on this session" } };
     }
 
-    const enriched = await ensureEventEnrichment(session, true);
-    if (enriched.eventEnrichment?.title) {
-      enriched.title = enriched.eventEnrichment.title;
-    }
+    const enriched = applyEnrichmentTitle(await ensureEventEnrichment(session, true));
     await saveSession(enriched);
     const preview = buildEventPreview(enriched);
     const profile = await loadProfileOrExample();

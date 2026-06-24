@@ -7,23 +7,25 @@ export function defaultOnboardingState(): OnboardingState {
   return { completed: false, step: 0, loopSubStep: 0 };
 }
 
-export function normalizeOnboarding(
-  progress: UserProgress,
-  sessionCount: number
-): { progress: UserProgress; onboarding: OnboardingState } {
+export function normalizeOnboarding(progress: UserProgress): {
+  progress: UserProgress;
+  onboarding: OnboardingState;
+  shouldPersist: boolean;
+} {
   if (progress.onboarding) {
-    return { progress, onboarding: progress.onboarding };
+    // Reset legacy auto-completed states from the old session-count migration.
+    if (progress.onboarding.completed && !progress.onboarding.explicit) {
+      const onboarding = defaultOnboardingState();
+      return {
+        progress: { ...progress, onboarding },
+        onboarding,
+        shouldPersist: true,
+      };
+    }
+    return { progress, onboarding: progress.onboarding, shouldPersist: false };
   }
 
-  if (sessionCount > 0) {
-    const onboarding: OnboardingState = { completed: true, step: ONBOARDING_STEP_COUNT, loopSubStep: 0 };
-    return {
-      progress: { ...progress, onboarding },
-      onboarding,
-    };
-  }
-
-  return { progress, onboarding: defaultOnboardingState() };
+  return { progress, onboarding: defaultOnboardingState(), shouldPersist: false };
 }
 
 export function shouldShowOnboarding(onboarding: OnboardingState): boolean {
@@ -41,6 +43,14 @@ export function mergeOnboardingState(
     step: patch.step ?? base.step,
     loopSubStep: patch.loopSubStep ?? base.loopSubStep,
   };
+
+  if (patch.skipped || patch.completed) {
+    next.explicit = true;
+  }
+
+  if (patch.explicit === false) {
+    next.explicit = false;
+  }
 
   if (patch.skipped) {
     next.completed = true;

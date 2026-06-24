@@ -175,6 +175,8 @@ export interface OnboardingState {
   step: number;
   loopSubStep?: number;
   skipped?: boolean;
+  /** Set when the user finishes or skips the tour — not auto-migrated. */
+  explicit?: boolean;
 }
 
 export interface UserProgress {

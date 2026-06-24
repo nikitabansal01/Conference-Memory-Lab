@@ -231,6 +231,7 @@ function showMainView(view) {
   document.getElementById("view-session").classList.toggle("hidden", view !== "session");
   document.getElementById("main-topbar").classList.toggle("hidden", view === "session");
   document.getElementById("btn-new-event")?.classList.toggle("hidden", view !== "home");
+  document.getElementById("btn-app-tour")?.classList.toggle("hidden", view !== "home");
   document.getElementById("sidebar").classList.remove("collapsed");
 }
 
@@ -598,11 +599,20 @@ function renderSidebarUser(d) {
 
 function renderHero(d) {
   const el = document.getElementById("hero");
+  const showTourPrompt = d.showOnboarding || !d.onboarding?.explicit;
   el.innerHTML = `
     <div class="hero-copy">
       <p class="hero-greeting">${timeGreeting()}, ${escapeHtml(firstName(d.profile.name))}</p>
       <h1 class="hero-headline">One idea from yesterday could shape your next move.</h1>
       <p class="hero-mission">We help you remember what mattered, think deeper, and turn it into impact.</p>
+      ${
+        showTourPrompt
+          ? `<div class="hero-actions">
+              <button type="button" class="btn btn-primary" id="btn-hero-tour">Take the app tour</button>
+              <p class="hero-tour-hint">5 quick steps — lens, capacity, your first event, the loop, and connections.</p>
+            </div>`
+          : ""
+      }
     </div>
     <div class="hero-visual" aria-hidden="true">
       <div class="hero-desk">
@@ -614,11 +624,13 @@ function renderHero(d) {
         <div class="hero-sprig"></div>
       </div>
     </div>`;
+  document.getElementById("btn-hero-tour")?.addEventListener("click", () => replayWalkthrough());
 }
 
 function renderLatestEvent(d) {
   const el = document.getElementById("latest-event");
   const session = d.featuredSession;
+  const isSample = Boolean(session?.isSample);
 
   if (!session) {
     el.innerHTML = `
@@ -633,31 +645,45 @@ function renderLatestEvent(d) {
   const whenLabel = formatWhenLabel(session.createdAt);
   const idea = stats.biggestIdea ?? getMatteredLine(session);
   const loopProgress = renderEventLoopProgress(session);
+  const kicker = isSample ? "Sample event" : `Latest event · ${escapeHtml(whenLabel)}`;
 
   el.innerHTML = `
-    <p class="section-kicker">Latest event · ${escapeHtml(whenLabel)}</p>
+    <p class="section-kicker">${kicker}${isSample ? ' · <span class="sample-badge">Preview only</span>' : ""}</p>
     <div class="latest-event-head">
-      <div class="latest-event-thumb" aria-hidden="true"></div>
+      <div class="latest-event-thumb${isSample ? " is-sample" : ""}" aria-hidden="true"></div>
       <div>
         <h2 class="section-title">${escapeHtml(session.title)}</h2>
         <p class="latest-event-stats">
-          <span>${stats.peopleCount ?? session.people?.length ?? 0} people met</span>
+          ${
+            isSample
+              ? `<span class="sample-event-copy">Example of what a logged mixer looks like — add your own event to start your loop.</span>`
+              : `<span>${stats.peopleCount ?? session.people?.length ?? 0} people met</span>
           <span class="dot">·</span>
-          <span>${stats.ideasCount ?? 0} ideas captured</span>
+          <span>${stats.ideasCount ?? 0} ideas captured</span>`
+          }
         </p>
       </div>
     </div>
     ${loopProgress}
     ${idea ? `
       <div class="insight-box">
-        <span class="insight-box-label">Yesterday's biggest idea</span>
+        <span class="insight-box-label">${isSample ? "Example insight" : "Yesterday's biggest idea"}</span>
         <p class="insight-box-text">"${escapeHtml(idea)}"</p>
       </div>` : ""}
     <div class="latest-event-actions">
-      <button type="button" class="btn btn-forest" data-open-session="${escapeHtml(session.id)}">Open full session →</button>
-      <button type="button" class="btn btn-text" data-view-ideas="${escapeHtml(session.id)}">View key ideas</button>
+      ${
+        isSample
+          ? `<button type="button" class="btn btn-forest" id="btn-sample-add-event">Add your first event</button>
+             <button type="button" class="btn btn-text" id="btn-sample-preview-session">Preview sample session</button>`
+          : `<button type="button" class="btn btn-forest" data-open-session="${escapeHtml(session.id)}">Open full session →</button>
+             <button type="button" class="btn btn-text" data-view-ideas="${escapeHtml(session.id)}">View key ideas</button>`
+      }
     </div>`;
 
+  el.querySelector("#btn-sample-add-event")?.addEventListener("click", openEventModal);
+  el.querySelector("#btn-sample-preview-session")?.addEventListener("click", () =>
+    openSession(session.id, "think")
+  );
   el.querySelector("[data-open-session]")?.addEventListener("click", () => openSession(session.id, "think"));
   el.querySelector("[data-view-ideas]")?.addEventListener("click", () => openSession(session.id, "think"));
   el.querySelectorAll(".event-loop-step[data-tab]").forEach((btn) => {
@@ -967,6 +993,33 @@ function renderLearningStreak(d) {
 
 let outcomeSessionId = null;
 
+function normalizeEventDescription(text) {
+  return String(text)
+    .replace(/\n{3,}/g, "\n\n")
+    .split(/\n\n+/)
+    .map((block) =>
+      block
+        .replace(/[ \t]+/g, " ")
+        .replace(/^(.{2,120}?)\1(?=\s|[,.;:!?]|$)/, "$1")
+        .trim()
+    )
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function renderDescriptionParagraphs(text, className = "outcome-about") {
+  if (!text) return "";
+  const normalized = normalizeEventDescription(text);
+  const paragraphs = normalized.split(/\n\n+/).map((part) => part.trim()).filter(Boolean);
+  if (!paragraphs.length) return "";
+  if (paragraphs.length === 1) {
+    return `<p class="${className}">${escapeHtml(paragraphs[0])}</p>`;
+  }
+  return `<div class="${className}">${paragraphs
+    .map((part) => `<p>${escapeHtml(part)}</p>`)
+    .join("")}</div>`;
+}
+
 function renderEventOutcomeBody(preview) {
   if (!preview) {
     return `<p class="empty-stack">Event link saved. We could not read details from this page yet — add notes and run Remember to extract speakers and topics.</p>`;
@@ -1036,7 +1089,7 @@ function renderEventOutcomeBody(preview) {
       <span class="outcome-source">${escapeHtml(preview.sourceLabel)}</span>
       <h3 class="outcome-event-title">${escapeHtml(preview.title)}</h3>
       ${preview.location ? `<p class="outcome-location">${escapeHtml(preview.location)}</p>` : ""}
-      <p class="outcome-about">${escapeHtml(aboutText)}</p>
+      ${renderDescriptionParagraphs(aboutText)}
       ${attendeeBlock}
       <a href="${escapeHtml(preview.eventUrl)}" target="_blank" rel="noopener" class="btn btn-text">Open event page →</a>
     </div>
@@ -1135,10 +1188,19 @@ async function openEventOutcomeModal(preview, sessionId, session, intentSuggesti
     const fresh = await fetchJson(`/api/sessions/${sessionId}/enrich-event`, { method: "POST" });
     if (fresh.eventPreview) {
       updateEventOutcomeModal(fresh.eventPreview, fresh.intentSuggestions);
-      return;
+    } else if (fresh.session) {
+      updateEventOutcomeModal(buildEventPreviewFallback(fresh.session), fresh.intentSuggestions);
     }
     if (fresh.session) {
-      updateEventOutcomeModal(buildEventPreviewFallback(fresh.session), fresh.intentSuggestions);
+      if (currentSession?.id === sessionId) {
+        currentSession = {
+          ...currentSession,
+          ...fresh.session,
+          title: sessionDisplayTitle(fresh.session),
+        };
+        renderSessionView();
+      }
+      await loadDashboard();
     }
   } catch {
     updateEventOutcomeModal(initial, intentSuggestions);
@@ -1514,25 +1576,39 @@ async function handleWalkthroughSecondary() {
 }
 
 function maybeStartWalkthrough(d, force = false) {
-  if (!force && !d.showOnboarding) return;
-  walkthroughStep = d.onboarding?.step ?? 0;
+  const urlTour = new URLSearchParams(window.location.search).get("tour");
+  const forceTour = force || urlTour === "1" || urlTour === "true";
+  if (!forceTour && !d.showOnboarding) return;
+  walkthroughStep = forceTour && !d.showOnboarding ? 0 : (d.onboarding?.step ?? 0);
   walkthroughLoopSub = d.onboarding?.loopSubStep ?? 0;
-  if (walkthroughStep >= WALKTHROUGH_STEPS.length) return;
+  if (walkthroughStep >= WALKTHROUGH_STEPS.length) {
+    if (forceTour) {
+      walkthroughStep = 0;
+      walkthroughLoopSub = 0;
+    } else {
+      return;
+    }
+  }
   showMainView("home");
   showWalkthroughOverlay();
 }
 
 async function replayWalkthrough() {
-  await saveWalkthroughState({ completed: false, skipped: false, step: 0, loopSubStep: 0 });
+  await saveWalkthroughState({ completed: false, skipped: false, explicit: false, step: 0, loopSubStep: 0 });
   walkthroughStep = 0;
   walkthroughLoopSub = 0;
   if (!dashboardData) {
     await ensureDashboardData();
   }
   dashboardData.showOnboarding = true;
-  dashboardData.onboarding = { completed: false, step: 0, loopSubStep: 0 };
+  dashboardData.onboarding = { completed: false, step: 0, loopSubStep: 0, explicit: false };
   showMainView("home");
   showWalkthroughOverlay();
+  if (window.location.search.includes("tour=")) {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("tour");
+    window.history.replaceState({}, "", url.pathname + url.search);
+  }
 }
 
 window.replayWalkthrough = replayWalkthrough;
@@ -1668,7 +1744,7 @@ function renderSessionView() {
   }
 
   document.getElementById("session-event-context").innerHTML = `
-    <h1 class="session-title">${escapeHtml(session.title)}</h1>
+    <h1 class="session-title">${escapeHtml(sessionDisplayTitle(session))}</h1>
     <p class="session-meta">${escapeHtml(typeLabel)} · ${escapeHtml(whenLabel)}${metaExtras}</p>`;
 
   document.getElementById("btn-add-link-header")?.addEventListener("click", () =>
@@ -1756,7 +1832,7 @@ function renderAttend(session) {
         session.eventEnrichment?.description
           ? `<div class="attend-event-about">
               <p class="section-kicker">About this event</p>
-              <p>${escapeHtml(session.eventEnrichment.description)}</p>
+              ${renderDescriptionParagraphs(session.eventEnrichment.description, "attend-event-about-copy")}
             </div>`
           : ""
       }
@@ -2018,10 +2094,48 @@ function openEventModal() {
   document.getElementById("event-title-display").textContent = "";
   document.getElementById("event-title-input").value = "";
   document.getElementById("event-url-status").textContent = "We'll read the public page for title and context.";
+  bindEventUrlPreview();
   document.getElementById("modal-event").showModal();
 }
 
 let eventUrlPreviewTimer = null;
+let eventUrlPreviewRequest = 0;
+
+function sessionDisplayTitle(session) {
+  const pageTitle = session?.eventEnrichment?.title?.trim();
+  if (pageTitle && pageTitle !== "Event") return pageTitle;
+  return session?.title?.trim() || "Event";
+}
+
+function scheduleEventUrlPreview(rawUrl) {
+  clearTimeout(eventUrlPreviewTimer);
+  eventUrlPreviewTimer = setTimeout(() => previewEventUrl(rawUrl), 400);
+}
+
+function bindEventUrlPreview() {
+  const input = document.getElementById("event-url-input");
+  if (!input || input.dataset.previewBound === "true") return;
+  input.dataset.previewBound = "true";
+
+  const handleChange = () => scheduleEventUrlPreview(input.value);
+  input.addEventListener("input", handleChange);
+  input.addEventListener("change", handleChange);
+  input.addEventListener("paste", () => {
+    setTimeout(() => scheduleEventUrlPreview(input.value), 0);
+  });
+}
+
+async function ensureEventTitleForSubmit(rawUrl) {
+  const titleInput = document.getElementById("event-title-input");
+  const current = titleInput?.value?.trim();
+  if (current && current !== "Event") return current;
+
+  const url = rawUrl.trim();
+  if (!url) return current || "";
+
+  await previewEventUrl(url);
+  return document.getElementById("event-title-input")?.value?.trim() || "";
+}
 
 async function previewEventUrl(rawUrl) {
   const statusEl = document.getElementById("event-url-status");
@@ -2034,12 +2148,14 @@ async function previewEventUrl(rawUrl) {
   }
 
   statusEl.textContent = "Reading event page…";
+  const requestId = ++eventUrlPreviewRequest;
   try {
     const data = await fetchJson("/api/events/preview-url", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ eventUrl: url }),
     });
+    if (requestId !== eventUrlPreviewRequest) return;
     if (data.title) {
       document.getElementById("event-title-display").textContent = data.title;
       document.getElementById("event-title-input").value = data.title;
@@ -2053,6 +2169,7 @@ async function previewEventUrl(rawUrl) {
       statusEl.textContent = data.error ?? "Could not read this page yet. Check the URL.";
     }
   } catch (err) {
+    if (requestId !== eventUrlPreviewRequest) return;
     titlePreview?.classList.add("hidden");
     statusEl.textContent = err.message ?? "Could not preview this link.";
   }
@@ -2150,6 +2267,9 @@ function handleNav(nav) {
 }
 
 document.getElementById("btn-new-event").addEventListener("click", openEventModal);
+document.getElementById("btn-app-tour")?.addEventListener("click", () => {
+  replayWalkthrough().catch((err) => alert(err.message ?? "Could not start tour"));
+});
 document.getElementById("btn-cancel-event").addEventListener("click", () => {
   document.getElementById("modal-event").close();
   if (walkthroughActive && walkthroughPaused && walkthroughStep === 2) {
@@ -2197,10 +2317,7 @@ document.querySelectorAll(".sidebar-nav .nav-item, .sidebar-foot .nav-item").for
   });
 });
 
-document.getElementById("event-url-input")?.addEventListener("input", (e) => {
-  clearTimeout(eventUrlPreviewTimer);
-  eventUrlPreviewTimer = setTimeout(() => previewEventUrl(e.target.value), 600);
-});
+bindEventUrlPreview();
 
 document.getElementById("form-event").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -2211,7 +2328,8 @@ document.getElementById("form-event").addEventListener("submit", async (e) => {
   errEl.classList.add("hidden");
   warnEl.classList.add("hidden");
 
-  if (!data.get("eventUrl")?.trim()) {
+  const eventUrl = String(data.get("eventUrl") ?? "").trim();
+  if (!eventUrl) {
     errEl.textContent = "Event page link is required — we use it to name the event and set context.";
     errEl.classList.remove("hidden");
     return;
@@ -2220,16 +2338,34 @@ document.getElementById("form-event").addEventListener("submit", async (e) => {
   const submitBtn = form.querySelector('button[type="submit"]');
   if (submitBtn) {
     submitBtn.disabled = true;
+    submitBtn.textContent = "Reading event page…";
+  }
+
+  let resolvedTitle = "";
+  try {
+    resolvedTitle = await ensureEventTitleForSubmit(eventUrl);
+  } catch (err) {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Add event";
+    }
+    errEl.textContent = err.message ?? "Could not read this event page.";
+    errEl.classList.remove("hidden");
+    return;
+  }
+
+  if (submitBtn) {
     submitBtn.textContent = "Adding event…";
   }
+
   const res = await fetch("/api/sessions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      title: data.get("title") || undefined,
+      title: resolvedTitle || undefined,
       eventType: data.get("eventType"),
       rawNotes: data.get("rawNotes"),
-      eventUrl: data.get("eventUrl") || undefined,
+      eventUrl,
       location: data.get("location") || undefined,
     }),
   });

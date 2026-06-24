@@ -748,6 +748,17 @@ body {
   line-height: 1.5;
 }
 
+.outcome-about p,
+.attend-event-about-copy {
+  margin: 0 0 10px;
+  line-height: 1.5;
+}
+
+.outcome-about p:last-child,
+.attend-event-about-copy:last-child {
+  margin-bottom: 0;
+}
+
 .outcome-speaker-topic {
   margin: 6px 0 0;
   font-size: 0.85rem;
@@ -948,6 +959,45 @@ body {
   color: var(--muted);
   font-size: 1.02rem;
   max-width: 520px;
+}
+
+.hero-actions {
+  margin-top: 18px;
+}
+
+.hero-tour-hint {
+  margin: 8px 0 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+  max-width: 420px;
+}
+
+.topbar-tour-btn {
+  white-space: nowrap;
+}
+
+.sample-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, white);
+  color: var(--accent);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.sample-event-copy {
+  display: block;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.latest-event-thumb.is-sample {
+  background: linear-gradient(145deg, #efe9dc, #e5dfd1);
+  border: 1px dashed color-mix(in srgb, var(--accent) 35%, var(--line));
 }
 
 .hero-desk {
