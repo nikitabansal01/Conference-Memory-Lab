@@ -141,10 +141,43 @@ export function finalizeDraftWorkflowOutput(
   session: EventSession,
   update: Partial<EventSession>
 ): Partial<EventSession> {
-  const themes = (update.themes ?? session.themes ?? []).filter((t) => t.label?.trim());
+  const allThemes = (update.themes ?? session.themes ?? []).filter((t) => t.label?.trim());
+  const selectedIds = session.selectedThemeIds ?? update.selectedThemeIds;
+  const themes =
+    selectedIds?.length
+      ? allThemes.filter((t) => selectedIds.includes(t.id))
+      : allThemes;
   const claims = update.claims ?? session.claims ?? [];
   const angles = normalizeContentAngles(update.contentAngles, themes);
-  const contentDrafts = normalizeContentDrafts(update.contentDrafts, angles, themes, claims);
+  let contentDrafts = normalizeContentDrafts(update.contentDrafts, angles, themes, claims);
+
+  const linkedIn = contentDrafts.filter((d) => d.platform === "linkedin" && d.body.trim());
+  if (themes.length === 1 && linkedIn.length < 2) {
+    const theme = themes[0]!;
+    const angle = angles.find((a) => a.claimIds?.some((id) => theme.claimIds?.includes(id))) ?? angles[0];
+    const base = linkedIn[0] ?? {
+      id: `draft-linkedin-${theme.id}-1`,
+      angleId: angle?.id ?? `angle-from-${theme.id}`,
+      platform: "linkedin" as const,
+      body: buildThemeLinkedInDraft(theme, angle, claims),
+      reasoningTrace: [`Generated from theme: ${theme.label}`],
+    };
+    const variantBody = linkedIn[1]?.body?.trim()
+      ? linkedIn[1].body
+      : `${base.body}\n\n(Alternative angle: lead with a question your audience is already asking.)`;
+    const second = linkedIn[1] ?? {
+      id: `draft-linkedin-${theme.id}-2`,
+      angleId: base.angleId,
+      platform: "linkedin" as const,
+      body: variantBody,
+      reasoningTrace: [`Second variant for theme: ${theme.label}`],
+    };
+    contentDrafts = [
+      ...contentDrafts.filter((d) => d.platform !== "linkedin"),
+      base,
+      second,
+    ];
+  }
 
   return {
     ...update,

@@ -167,6 +167,7 @@ const FALLBACK_PROFILE: ExpertiseProfile = {
   pastPostExamples: [],
   contentPriorities: [],
   assumptionPatterns: [],
+  learnings: [],
 };
 
 export async function loadProfileOrExample(userId: string): Promise<ExpertiseProfile> {
@@ -191,6 +192,8 @@ export async function saveProfile(profile: ExpertiseProfile, userId: string): Pr
   await writeFile(profileFile(userId), JSON.stringify(profile, null, 2));
 }
 
+export const SAMPLE_SESSION_ALIAS = "sample-sf-llm-eval-mixer";
+
 export async function loadExampleSession(): Promise<EventSession | null> {
   try {
     const raw = await readFile(join(ROOT, "examples/pipeline/full-session.json"), "utf-8");
@@ -206,7 +209,13 @@ export async function resolveSession(id: string, userId: string): Promise<EventS
   if (local) return local;
 
   const example = await loadExampleSession();
-  if (example && (example.id.startsWith(id) || id.startsWith(example.id.slice(0, 8)))) {
+  if (
+    example &&
+    (id === SAMPLE_SESSION_ALIAS ||
+      example.id === id ||
+      example.id.startsWith(id) ||
+      id.startsWith(example.id.slice(0, 8)))
+  ) {
     return example;
   }
   return null;

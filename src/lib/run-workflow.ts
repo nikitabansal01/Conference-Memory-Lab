@@ -7,8 +7,10 @@ import { computeEvalScores } from "./eval-scores.js";
 import { mergeSessionUpdate, applyStageCompletion } from "./complete.js";
 import { canPerformAction, getLevelDefinition } from "../trust/levels.js";
 import { loadProgress, saveProgress, saveSession, loadProfileOrExample } from "./storage.js";
+import { captureInputFingerprint } from "./notes-fingerprint.js";
 
 const WORKFLOW_ACTIONS: Record<WorkflowName, string> = {
+  "organize-transcript": "run_extract",
   extract: "run_extract",
   synthesize: "run_synthesize",
   draft: "generate_content_drafts",
@@ -43,7 +45,11 @@ const STAGE_ORDER: SessionStage[] = [
   "published",
 ];
 
-export type RunnableWorkflow = "extract" | "synthesize" | "draft" | "self-critique";
+export type RunnableWorkflow = "organize-transcript" | "extract" | "synthesize" | "draft" | "self-critique";
+
+export interface WorkflowRunOptions {
+  selectedThemeIds?: string[];
+}
 
 function stageIndex(stage: SessionStage): number {
   return STAGE_ORDER.indexOf(stage);
@@ -128,21 +134,51 @@ function appendCritiqueNotes(
   };
 }
 
+function hasCaptureInput(session: EventSession): boolean {
+  return Boolean(
+    session.rawNotes?.trim() ||
+      session.eventTranscript?.trim() ||
+      session.organizedNotes?.trim()
+  );
+}
+
 export async function runSessionWorkflow(
   workflow: RunnableWorkflow,
   session: EventSession,
-  userId: string
+  userId: string,
+  options: WorkflowRunOptions = {}
 ): Promise<{ session: EventSession; xpAwarded: number; leveledUp: boolean }> {
   if (!isLlmConfigured()) {
     throw new Error("LLM is not configured. Set OPENAI_API_KEY on the server.");
   }
 
-  if (workflow === "extract" && !session.rawNotes?.trim()) {
-    throw new Error("Add notes before running Remember.");
+  if (workflow === "organize-transcript" && !session.eventTranscript?.trim()) {
+    throw new Error("Paste a transcript before organizing.");
+  }
+
+  if (workflow === "extract" && !hasCaptureInput(session)) {
+    throw new Error("Add notes or a transcript before running Remember.");
   }
 
   if (workflow === "draft" && !(session.themes ?? []).some((t) => t.label?.trim())) {
     throw new Error("Run Think first — save at least one theme before generating LinkedIn drafts.");
+  }
+
+  if (workflow === "draft") {
+    const themeIds = options.selectedThemeIds?.length
+      ? options.selectedThemeIds
+      : session.selectedThemeIds;
+    let resolvedIds = themeIds;
+    if (!resolvedIds?.length) {
+      resolvedIds = (session.themes ?? [])
+        .filter((t) => t.label?.trim())
+        .slice(0, 2)
+        .map((t) => t.id);
+    }
+    if (!resolvedIds?.length) {
+      throw new Error("Run Think first — save at least one theme before generating LinkedIn drafts.");
+    }
+    session = { ...session, selectedThemeIds: resolvedIds };
   }
 
   if (workflow === "self-critique" && !session.contentDrafts?.length) {
@@ -165,7 +201,10 @@ export async function runSessionWorkflow(
     );
   }
 
-  const profile = workflow === "extract" ? null : await loadProfileOrExample(userId);
+  const profile =
+    workflow === "extract" || workflow === "organize-transcript"
+      ? null
+      : await loadProfileOrExample(userId);
   const bundle = await buildWorkflowPrompt(workflow, session, profile, userLevel);
 
   const userPrompt = [
@@ -193,7 +232,25 @@ export async function runSessionWorkflow(
 
   const { stage: _ignored, ...updateWithoutStage } = update;
 
-  const merged = mergeSessionUpdate(session, updateWithoutStage);
+  let merged = mergeSessionUpdate(session, updateWithoutStage);
+
+  if (workflow === "organize-transcript") {
+    const organizedNotes = String(parsed.organizedNotes ?? "").trim();
+    if (!organizedNotes) {
+      throw new Error("Could not organize transcript — try again with a longer paste.");
+    }
+    merged = { ...merged, organizedNotes };
+    const saved = { ...merged, userId };
+    await saveSession(saved, userId);
+    return { session: saved, xpAwarded: 0, leveledUp: false };
+  }
+
+  if (workflow === "extract") {
+    merged = {
+      ...merged,
+      extractedNotesFingerprint: captureInputFingerprint(merged),
+    };
+  }
   const targetStage = WORKFLOW_STAGES[workflow];
   if (!targetStage) {
     throw new Error(`Unknown workflow stage for ${workflow}`);

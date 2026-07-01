@@ -159,6 +159,10 @@ export interface EventSession {
   eventEnrichment?: EventEnrichment;
   attendanceIntent?: string;
   rawNotes: string;
+  /** Raw transcript pasted from Otter, Fireflies, voice memo, etc. */
+  eventTranscript?: string;
+  /** AI-organized notes generated from eventTranscript — user-editable. */
+  organizedNotes?: string;
   screenshotDescriptions: string[];
   captures?: CaptureFile[];
   stage: SessionStage;
@@ -173,6 +177,10 @@ export interface EventSession {
   contentDrafts: ContentDraft[];
   evalScores?: EvalScores;
   matteredLine?: string;
+  /** Hash of rawNotes when Remember last ran — detects note edits after extract. */
+  extractedNotesFingerprint?: string;
+  /** Theme IDs the user chose for LinkedIn draft generation. */
+  selectedThemeIds?: string[];
   xpEarned: number;
 }
 
@@ -204,6 +212,22 @@ export interface Milestone {
   xpReward: number;
 }
 
+export type ProfileLearningSource = "think_edit" | "draft_edit" | "eval_feedback" | "user_added";
+
+export interface ProfileLearning {
+  id: string;
+  /** Actionable rule injected into AI prompts. */
+  instruction: string;
+  /** Short headline shown in UI — what we learned in plain English. */
+  summary: string;
+  /** Why we captured this — what you did differently. */
+  reason?: string;
+  source: ProfileLearningSource;
+  sessionId?: string;
+  sessionTitle?: string;
+  createdAt: string;
+}
+
 export interface ExpertiseProfile {
   name: string;
   tagline: string;
@@ -217,4 +241,6 @@ export interface ExpertiseProfile {
   pastPostExamples: string[];
   contentPriorities: string[];
   assumptionPatterns: string[];
+  /** Corrections and preferences captured from user edits across events. */
+  learnings?: ProfileLearning[];
 }

@@ -43,11 +43,19 @@ const LOOP = [
 ];
 
 const STEP_META = {
-  attend: { step: 1, title: "Attend", subtitle: "Capture notes and media while the event is fresh" },
+  attend: { step: 1, title: "Attend", subtitle: "Capture notes, transcripts, and media while the event is fresh" },
   think: { step: 2, title: "Think", subtitle: "Connect takeaways to your unique lens" },
   connect: { step: 3, title: "Connect", subtitle: "Reach out with context, not generic invites" },
   create: { step: 4, title: "Create", subtitle: "Turn Think themes into LinkedIn post drafts" },
   review: { step: 5, title: "Review", subtitle: "Score grounding and approve before sharing" },
+};
+
+const STEP_LANE = {
+  attend: { lane: "learn", label: "Learn", goal: "Capture what happened while it's fresh" },
+  think: { lane: "learn", label: "Learn", goal: "Turn takeaways into insight through your lens" },
+  connect: { lane: "share", label: "Share", goal: "Reach out while conversations are still warm" },
+  create: { lane: "share", label: "Share", goal: "Turn your insights into posts worth sharing" },
+  review: { lane: "share", label: "Share", goal: "Approve before anything goes public" },
 };
 
 const STAGE_LOOP_INDEX = {
@@ -71,7 +79,7 @@ const CAPACITY_DISPLAY = [
 const LOOP_WALKTHROUGH = [
   {
     title: "Attend — show up & capture",
-    body: "Dump rough notes, photos, voice memos, or links while the event is fresh. This is your raw material.",
+    body: "Dump rough notes, photos, voice memos, transcripts, or links while the event is fresh. This is your raw material.",
   },
   {
     title: "Think — go deeper",
@@ -160,6 +168,26 @@ const WALKTHROUGH_COMPANION = {
 };
 
 let lensImportPromptCache = null;
+
+const LENS_IMPORT_PROMPT_FALLBACK = `I use you to brainstorm projects, explore new topics, and work through ideas — and I have memory on, so you already know a lot about me from our past conversations.
+
+I'm setting up Conference Memory Lab, an app that turns networking events into grounded memory and content filtered through my unique lens.
+
+Please synthesize everything you know about me from our conversation history and memory into a profile I can paste into the app.
+
+Respond in EXACTLY this format (keep the ## headers):
+
+## Name
+## Tagline
+## Current role
+## Education
+## Learning goals & expertise
+## Ongoing projects
+## Voice & how I think
+## What to avoid in my writing
+## Questions I naturally ask
+## Past writing samples
+## Confidence note`;
 
 let walkthroughStep = 0;
 let walkthroughLoopSub = 0;
@@ -1093,7 +1121,7 @@ function renderLatestEvent(d) {
       <button type="button" class="btn btn-text" data-view-ideas="${escapeHtml(session.id)}">View key ideas</button>
     </div>`;
 
-  el.querySelector("[data-open-session]")?.addEventListener("click", () => openSession(session.id, "think"));
+  el.querySelector("[data-open-session]")?.addEventListener("click", () => openSession(session.id));
   el.querySelector("[data-view-ideas]")?.addEventListener("click", () => openSession(session.id, "think"));
   el.querySelectorAll(".event-loop-step[data-tab]").forEach((btn) => {
     btn.addEventListener("click", () => openSession(session.id, btn.dataset.tab));
@@ -1563,14 +1591,17 @@ function renderLens(profile, lensImpact) {
   const el = document.getElementById("lens-card");
   const status = profile.status;
   const impacts = lensImpact ?? [];
+  const learnings = profile.learnings ?? [];
 
   if (!status.complete) {
     el.innerHTML = `
       ${lensPanelHeader()}
       <p class="lens-incomplete">${escapeHtml(status.lensSummary)}</p>
       <div class="lens-progress"><div class="lens-progress-fill" style="width:${status.score}%"></div></div>
+      ${renderLensLearnings(learnings)}
       <button type="button" class="btn btn-text lens-edit-link" data-edit-lens>Complete your unique lens →</button>`;
     bindLensEdit(el);
+    bindLensLearnings(el);
     return;
   }
 
@@ -1582,8 +1613,162 @@ function renderLens(profile, lensImpact) {
     ${impacts.length ? `
       <p class="lens-impact-label">Today's insights were shaped by:</p>
       <ul class="lens-impact-list">${impacts.map((b) => `<li>${escapeHtml(b)}</li>`).join("")}</ul>` : ""}
+    ${renderLensLearnings(learnings)}
     <button type="button" class="btn btn-text lens-edit-link" data-edit-lens>Edit your unique lens →</button>`;
   bindLensEdit(el);
+  bindLensLearnings(el);
+}
+
+function applyLearningsSaveFeedback(data, statusEl) {
+  if (!data?.learningsAdded?.length) return;
+  const summary = learningDisplaySummary(data.learningsAdded[0]);
+  if (statusEl) {
+    statusEl.textContent = `Saved — lens learned: ${summary}`;
+  }
+  if (dashboardData) {
+    dashboardData.profile.learnings = data.profileLearnings ?? dashboardData.profile.learnings;
+    renderLens(dashboardData.profile, dashboardData.lensImpact);
+  }
+}
+
+function learningSourceLabel(source) {
+  const map = {
+    think_edit: "Think",
+    draft_edit: "Draft",
+    eval_feedback: "Review",
+    user_added: "You",
+  };
+  return map[source] ?? "Learned";
+}
+
+function learningDisplaySummary(learning) {
+  return learning.summary?.trim() || learning.instruction?.trim() || "Preference learned";
+}
+
+function formatLearningDate(iso) {
+  if (!iso) return "";
+  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function renderLearningCard(learning, options = {}) {
+  const { compact = false, editable = false } = options;
+  const summary = learningDisplaySummary(learning);
+  const reason = learning.reason?.trim();
+  const meta = [
+    learningSourceLabel(learning.source),
+    learning.sessionTitle,
+    formatLearningDate(learning.createdAt),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  if (editable) {
+    return `
+      <div
+        class="lens-learning-edit"
+        data-learning-id="${escapeHtml(learning.id)}"
+        data-learning-source="${escapeHtml(learning.source ?? "")}"
+        data-learning-session-id="${escapeHtml(learning.sessionId ?? "")}"
+        data-learning-session-title="${escapeHtml(learning.sessionTitle ?? "")}"
+        data-learning-created-at="${escapeHtml(learning.createdAt ?? "")}"
+      >
+        <label class="field lens-learning-edit-field">
+          <span>Rule for the AI</span>
+          <textarea data-learning-summary rows="3" placeholder="What should the AI do differently next time?">${escapeHtml(summary)}</textarea>
+        </label>
+        ${reason ? `<p class="lens-learning-reason"><span class="lens-learning-reason-label">Captured because:</span> ${escapeHtml(reason)}</p>` : ""}
+        <div class="lens-learning-edit-foot">
+          <p class="lens-learning-meta">${escapeHtml(meta)}</p>
+          <button type="button" class="btn btn-text btn-compact lens-learning-delete" data-delete-learning="${escapeHtml(learning.id)}">Remove</button>
+        </div>
+      </div>`;
+  }
+
+  return `
+    <article class="lens-learning-card${compact ? " is-compact" : ""}">
+      <div class="lens-learning-card-body">
+        <p class="lens-learning-summary">${escapeHtml(summary)}</p>
+        ${reason ? `<p class="lens-learning-reason"><span class="lens-learning-reason-label">Because:</span> ${escapeHtml(reason)}</p>` : ""}
+        <p class="lens-learning-meta">${escapeHtml(meta)}</p>
+      </div>
+      <button type="button" class="btn btn-text btn-compact lens-learning-delete" data-delete-learning="${escapeHtml(learning.id)}">Remove</button>
+    </article>`;
+}
+
+function collectLensModalLearnings() {
+  const list = document.getElementById("lens-modal-learnings-list");
+  if (!list) return [];
+  return [...list.querySelectorAll("[data-learning-id]")]
+    .map((row) => {
+      const summary = row.querySelector("[data-learning-summary]")?.value?.trim() ?? "";
+      if (!summary) return null;
+      return {
+        id: row.dataset.learningId,
+        summary,
+        instruction: summary,
+        source: row.dataset.learningSource || "user_added",
+        sessionId: row.dataset.learningSessionId || undefined,
+        sessionTitle: row.dataset.learningSessionTitle || undefined,
+        createdAt: row.dataset.learningCreatedAt || new Date().toISOString(),
+      };
+    })
+    .filter(Boolean);
+}
+
+function renderLensLearnings(learnings) {
+  if (!learnings?.length) return "";
+  return `
+    <div class="lens-learnings">
+      <p class="lens-learnings-label">What the system learned from you</p>
+      <div class="lens-learnings-list">
+        ${learnings.map((l) => renderLearningCard(l, { compact: true })).join("")}
+      </div>
+      <p class="lens-learnings-foot">Open Edit lens to change these rules or remove mistakes.</p>
+    </div>`;
+}
+
+function renderLensModalLearnings(learnings) {
+  const list = document.getElementById("lens-modal-learnings-list");
+  if (!list) return;
+
+  if (!learnings?.length) {
+    list.innerHTML = `<p class="lens-learnings-empty">Nothing learned yet. Edit a draft or Think output and hit Save — rules will appear here.</p>`;
+    return;
+  }
+
+  list.innerHTML = learnings.map((l) => renderLearningCard(l, { editable: true })).join("");
+  bindLensLearnings(list);
+}
+
+function bindLensLearnings(rootEl) {
+  const scope = rootEl || document.getElementById("lens-card");
+  if (!scope?.querySelectorAll) return;
+  scope.querySelectorAll("[data-delete-learning]").forEach((btn) => {
+    if (btn.dataset.boundLearningDelete) return;
+    btn.dataset.boundLearningDelete = "1";
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.deleteLearning;
+      if (!id) return;
+      btn.setAttribute("disabled", "true");
+      try {
+        await fetchJson("/api/profile", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ deleteLearningId: id }),
+        });
+        await ensureDashboardData();
+        renderLens(dashboardData.profile, dashboardData.lensImpact);
+        btn.closest("[data-learning-id], .lens-learning-card")?.remove();
+        const list = document.getElementById("lens-modal-learnings-list");
+        if (list && !list.querySelector("[data-learning-id]")) {
+          list.innerHTML = `<p class="lens-learnings-empty">Nothing learned yet. Edit a draft or Think output and hit Save — rules will appear here.</p>`;
+        }
+      } catch (err) {
+        alert(err instanceof Error ? err.message : "Could not remove learning");
+        btn.removeAttribute("disabled");
+      }
+    });
+  });
 }
 
 function lensPanelHeader() {
@@ -2057,7 +2242,11 @@ async function openLensModal() {
   form.education.value = profile.education ?? "";
   form.expertiseAreas.value = arrayToLines(profile.expertiseAreas);
   form.contentPriorities.value = arrayToLines(profile.contentPriorities);
-  form.pastPostExamples.value = arrayToLines(profile.pastPostExamples);
+  form.pastPostExamples.value = postsToFormText(profile.pastPostExamples);
+  if (form.voiceTraits) form.voiceTraits.value = arrayToLines(profile.voiceTraits);
+  if (form.avoidPatterns) form.avoidPatterns.value = arrayToLines(profile.avoidPatterns);
+  if (form.assumptionPatterns) form.assumptionPatterns.value = arrayToLines(profile.assumptionPatterns);
+  renderLensModalLearnings(profile.learnings ?? []);
   document.getElementById("lens-error").classList.add("hidden");
   document.getElementById("lens-import-text").value = "";
   setLensImportStatus("");
@@ -2171,18 +2360,96 @@ function linesToArray(text) {
     .filter(Boolean);
 }
 
+function paragraphsToArray(text) {
+  return String(text ?? "")
+    .split(/\n\s*\n/)
+    .map((block) =>
+      block
+        .split("\n")
+        .map((s) => s.replace(/^[-*•]\s*/, "").trim())
+        .filter(Boolean)
+        .join(" ")
+        .trim()
+    )
+    .filter((p) => p.length > 20);
+}
+
+function postsToFormText(posts) {
+  return (posts ?? []).join("\n\n");
+}
+
+async function copyTextToClipboard(text) {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // fall through
+    }
+  }
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.setAttribute("readonly", "");
+  ta.style.position = "fixed";
+  ta.style.left = "-9999px";
+  document.body.appendChild(ta);
+  ta.select();
+  try {
+    return document.execCommand("copy");
+  } catch {
+    return false;
+  } finally {
+    document.body.removeChild(ta);
+  }
+}
+
+function renderSourceBadge(kind) {
+  if (kind === "you") {
+    return `<span class="source-badge source-you" title="You fill this in">You write</span>`;
+  }
+  if (kind === "ai") {
+    return `<span class="source-badge source-ai" title="AI suggests — edit freely">AI suggests</span>`;
+  }
+  if (kind === "you-or-ai") {
+    return `<span class="source-badge source-mixed" title="You can write first, or run AI to suggest">You or AI</span>`;
+  }
+  return "";
+}
+
 function parseLensImportSections(text) {
   const sections = {};
-  const chunks = String(text ?? "").split(/^## /m);
-  for (const chunk of chunks) {
-    const trimmed = chunk.trim();
-    if (!trimmed) continue;
-    const nl = trimmed.indexOf("\n");
-    const title = (nl === -1 ? trimmed : trimmed.slice(0, nl)).trim().toLowerCase();
-    const body = (nl === -1 ? "" : trimmed.slice(nl + 1)).trim();
-    if (title) sections[title] = body;
+  const lines = String(text ?? "").split(/\r?\n/);
+  let currentTitle = null;
+  let currentBody = [];
+
+  const flush = () => {
+    if (currentTitle) {
+      sections[currentTitle.toLowerCase().trim()] = currentBody.join("\n").trim();
+    }
+    currentBody = [];
+  };
+
+  for (const line of lines) {
+    const h = line.match(/^#{1,3}\s+(.+)$/);
+    const bold = line.match(/^\*\*(.+?)\*\*$/);
+    const title = h?.[1]?.trim() ?? bold?.[1]?.trim();
+    if (title) {
+      flush();
+      currentTitle = title;
+    } else if (currentTitle) {
+      currentBody.push(line);
+    }
   }
+  flush();
   return sections;
+}
+
+function lensSection(sections, ...aliases) {
+  for (const alias of aliases) {
+    const value = sections[alias.toLowerCase()];
+    if (value?.trim()) return value;
+  }
+  return "";
 }
 
 function importListField(raw) {
@@ -2201,18 +2468,24 @@ function importScalarField(raw) {
 function applyLensImportToForm(text) {
   const sections = parseLensImportSections(text);
   if (!Object.keys(sections).length) {
-    return { ok: false, error: "No ## sections found. Paste the full formatted response from ChatGPT or Claude." };
+    return {
+      ok: false,
+      error:
+        "No ## sections found. Paste the full formatted response from ChatGPT or Claude — it must include headers like ## Name, ## Tagline, ## Past writing samples.",
+    };
   }
 
   const form = document.getElementById("form-lens");
   const mapping = [
-    ["name", sections.name, "scalar"],
-    ["tagline", sections.tagline, "scalar"],
-    ["currentRole", sections["current role"], "scalar"],
-    ["education", sections.education, "scalar"],
-    ["expertiseAreas", importListField(sections["learning goals & expertise"]).join("\n"), "list"],
-    ["contentPriorities", importListField(sections["ongoing projects"]).join("\n"), "list"],
-    ["pastPostExamples", importListField(sections["past writing samples"]).join("\n\n"), "list"],
+    ["name", lensSection(sections, "name"), "scalar"],
+    ["tagline", lensSection(sections, "tagline"), "scalar"],
+    ["currentRole", lensSection(sections, "current role"), "scalar"],
+    ["education", lensSection(sections, "education"), "scalar"],
+    ["expertiseAreas", importListField(lensSection(sections, "learning goals & expertise", "learning goals", "expertise")).join("\n"), "list"],
+    ["contentPriorities", importListField(lensSection(sections, "ongoing projects", "projects")).join("\n"), "list"],
+    ["voiceTraits", importListField(lensSection(sections, "voice & how i think", "voice", "how i think")).join("\n"), "list"],
+    ["avoidPatterns", importListField(lensSection(sections, "what to avoid in my writing", "what to avoid")).join("\n"), "list"],
+    ["pastPostExamples", importListField(lensSection(sections, "past writing samples", "past posts", "writing samples")).join("\n\n"), "posts"],
   ];
 
   let applied = 0;
@@ -2225,8 +2498,18 @@ function applyLensImportToForm(text) {
     applied += 1;
   }
 
+  const questions = importListField(lensSection(sections, "questions i naturally ask", "questions"));
+  if (questions.length && form.assumptionPatterns) {
+    form.assumptionPatterns.value = questions.join("\n");
+    applied += 1;
+  }
+
   if (!applied) {
-    return { ok: false, error: "Couldn't map any fields. Check that the response uses the ## headers from the import prompt." };
+    return {
+      ok: false,
+      error:
+        "Couldn't map any fields. Make sure the response uses ## headers from the import prompt (## Name, ## Tagline, ## Past writing samples, etc.).",
+    };
   }
   return { ok: true, applied };
 }
@@ -2241,15 +2524,43 @@ function setLensImportStatus(message, isError = false) {
 
 async function getLensImportPrompt() {
   if (lensImportPromptCache) return lensImportPromptCache;
-  const data = await fetchJson("/api/profile/lens-import-prompt");
-  lensImportPromptCache = data.prompt;
-  return lensImportPromptCache;
+  try {
+    const data = await fetchJson("/api/profile/lens-import-prompt");
+    lensImportPromptCache = data.prompt;
+    return lensImportPromptCache;
+  } catch {
+    lensImportPromptCache = LENS_IMPORT_PROMPT_FALLBACK;
+    return lensImportPromptCache;
+  }
 }
 
-async function openSession(id, tab = "think") {
+function showLensPromptPreview(prompt) {
+  const wrap = document.getElementById("lens-prompt-preview-wrap");
+  const preview = document.getElementById("lens-prompt-preview");
+  const showBtn = document.getElementById("btn-show-lens-prompt");
+  if (preview) preview.value = prompt;
+  wrap?.classList.remove("hidden");
+  showBtn?.classList.remove("hidden");
+  preview?.focus();
+  preview?.select();
+}
+
+function defaultTabForSession(session) {
+  const map = {
+    ingested: "attend",
+    extracted: "think",
+    synthesized: "connect",
+    drafted: "create",
+    reviewed: "review",
+    published: "review",
+  };
+  return map[session?.stage] ?? "attend";
+}
+
+async function openSession(id, tab) {
   try {
-    activeTab = tab;
     currentSession = await fetchJson(`/api/sessions/${id}`);
+    activeTab = tab ?? defaultTabForSession(currentSession);
     renderSessionView();
     showMainView("session");
   } catch (err) {
@@ -2322,43 +2633,89 @@ function renderSessionPipeline(session) {
   bindLoopStepButtons(el, setActiveTab);
 }
 
-function getSessionCta(session) {
+function getTabQuest(session, tab) {
   const name = session.title;
-  if (session.stage === "drafted" && session.followUpDrafts?.length) {
-    const person = session.people.find((p) => p.id === session.followUpDrafts[0].personId);
-    return { label: `Follow up with ${person?.name ?? "someone"} before you post`, cta: "Open Connect", tab: "connect" };
-  }
-  const map = {
-    ingested: { label: `Capture learnings from “${name}”`, cta: "Capture", tab: "attend" },
-    extracted: { label: `What mattered at “${name}”?`, cta: "Go deeper", tab: "think" },
-    synthesized: { label: `Reach out while “${name}” is fresh`, cta: "Open Connect", tab: "connect" },
-    drafted: { label: `Draft your take from “${name}”`, cta: "Open Create", tab: "create" },
-    reviewed: { label: "Final review before sharing", cta: "Review", tab: "review" },
-    published: { label: "Loop complete", cta: "Back home", tab: "think" },
+  const byTab = {
+    attend: {
+      label:
+        session.stage === "ingested"
+          ? "Add notes or a transcript, then pull out key takeaways"
+          : "Takeaways captured — move to Think when ready",
+      cta: session.stage === "ingested" ? "Stay on Attend" : "Go to Think",
+      targetTab: session.stage === "ingested" ? "attend" : "think",
+      showContinue: session.stage === "ingested",
+    },
+    think: {
+      label:
+        session.stage === "extracted"
+          ? `What mattered at “${name}”? Run Think to connect it to your lens`
+          : "Edit your synthesis, then reach out or draft",
+      cta: ["synthesized", "drafted", "reviewed", "published"].includes(session.stage)
+        ? "Go to Connect"
+        : "Stay on Think",
+      targetTab: ["synthesized", "drafted", "reviewed", "published"].includes(session.stage)
+        ? "connect"
+        : "think",
+      showContinue: session.stage === "extracted",
+    },
+    connect: {
+      label: "Copy a personalized note while the conversation is fresh",
+      cta: ["drafted", "reviewed", "published"].includes(session.stage) ? "Go to Create" : "Stay on Connect",
+      targetTab: ["drafted", "reviewed", "published"].includes(session.stage) ? "create" : "connect",
+      showContinue: false,
+    },
+    create: {
+      label:
+        getSelectedTopicIds(session).length === 0
+          ? "Pick 1–2 topics, then generate LinkedIn drafts"
+          : `Draft your take from “${name}”`,
+      cta: session.stage === "drafted" || session.stage === "reviewed" ? "Go to Review" : "Stay on Create",
+      targetTab: session.stage === "drafted" || session.stage === "reviewed" ? "review" : "create",
+      showContinue: session.stage === "synthesized" && getSelectedTopicIds(session).length > 0,
+    },
+    review: {
+      label: "Score grounding and voice before you share",
+      cta: session.stage === "published" ? "Back home" : "Stay on Review",
+      targetTab: session.stage === "published" ? "think" : "review",
+      showContinue: session.stage === "drafted",
+    },
   };
-  return map[session.stage] ?? map.ingested;
+  return byTab[tab] ?? byTab.attend;
 }
 
 function renderSessionQuestBar(session) {
   const el = document.getElementById("session-quest-bar");
-  const { label, cta, tab } = getSessionCta(session);
+  const quest = getTabQuest(session, activeTab);
+  const continueBtn = quest.showContinue
+    ? `<button type="button" class="btn btn-secondary btn-compact session-quest-secondary" id="btn-continue-event">Continue</button>`
+    : "";
   el.innerHTML = `
     <div class="session-quest-inner">
-      <div>
-        <p class="quest-eyebrow">Recommended next step</p>
-        <strong>${escapeHtml(label)}</strong>
+      <div class="session-quest-copy">
+        <p class="quest-eyebrow">On this step</p>
+        <strong>${escapeHtml(quest.label)}</strong>
+        <p class="quest-trace" id="agent-continue-status" aria-live="polite"></p>
       </div>
-      <button type="button" class="btn btn-quest btn-compact">${escapeHtml(cta)}</button>
+      <div class="session-quest-actions">
+        ${continueBtn}
+        <button type="button" class="btn btn-quest btn-compact" id="btn-quest-tab">${escapeHtml(quest.cta)}</button>
+      </div>
     </div>`;
-  el.querySelector("button").addEventListener("click", () => {
-    if (session.stage === "published") loadDashboard();
-    else setActiveTab(tab);
+  el.querySelector("#btn-quest-tab")?.addEventListener("click", () => {
+    if (quest.targetTab === "think" && session.stage === "published") loadDashboard();
+    else setActiveTab(quest.targetTab);
+  });
+  el.querySelector("#btn-continue-event")?.addEventListener("click", () => {
+    continueSessionAgent(session.id);
   });
 }
 
 function setActiveTab(tab) {
   activeTab = tab;
-  if (currentSession) syncLoopStepStates(currentSession, tab);
+  if (currentSession) {
+    syncLoopStepStates(currentSession, tab);
+    renderSessionQuestBar(currentSession);
+  }
   document.querySelectorAll(".panel").forEach((p) => p.classList.remove("active"));
   document.getElementById(`panel-${tab}`)?.classList.add("active");
 }
@@ -2377,6 +2734,97 @@ function wrapStepPanel(stepKey, bodyHtml, actionsHtml = "") {
       ${actionsHtml ? `<div class="step-header-actions">${actionsHtml}</div>` : ""}
     </header>
     <div class="step-body">${bodyHtml}</div>`;
+}
+
+function sessionHasCaptureInput(session) {
+  return !!(
+    session.rawNotes?.trim() ||
+    session.eventTranscript?.trim() ||
+    session.organizedNotes?.trim() ||
+    (session.captures ?? []).length
+  );
+}
+
+function getStepChecklist(stepKey, session) {
+  const claims = (session.claims ?? []).filter((c) => resolveClaimText(c));
+  const themes = getCreateThemes(session);
+  const linkedInDrafts = getLinkedInDrafts(session).filter((d) => String(d.body ?? "").trim());
+
+  switch (stepKey) {
+    case "attend":
+      return [
+        { label: "Add notes or transcript", done: sessionHasCaptureInput(session) },
+        { label: "Analyze key takeaways", done: session.stage !== "ingested" && claims.length > 0 },
+      ];
+    case "think":
+      return [
+        { label: "Write what mattered", done: !!(session.matteredLine?.trim() || getMatteredLine(session)) },
+        { label: "Run Think", done: !["ingested", "extracted"].includes(session.stage) },
+        { label: "Save your edits", done:
+          !["ingested", "extracted"].includes(session.stage) &&
+          ((session.themes ?? []).some((t) => t.profileConnection?.trim()) ||
+            (session.assumptionChallenges ?? []).length > 0) },
+      ];
+    case "connect":
+      return [
+        { label: "Review connection drafts", done: (session.connectionDrafts ?? []).length > 0 },
+        { label: "Copy a personalized note", done: session.stage !== "synthesized" },
+      ];
+    case "create":
+      return [
+        { label: "Topics ready from Think", done: getSelectableTopics(session).length > 0 },
+        { label: "Pick topics to post about", done: getSelectedTopicIds(session).length > 0 },
+        { label: "Generate LinkedIn drafts", done: linkedInDrafts.length > 0 },
+      ];
+    case "review":
+      return [
+        { label: "Run Review", done: !!session.evalScores },
+        { label: "Approve when ready", done: ["reviewed", "published"].includes(session.stage) },
+      ];
+    default:
+      return [];
+  }
+}
+
+function renderStepChecklist(items) {
+  if (!items.length) return "";
+  return `
+    <ul class="step-guide-checklist" aria-label="Step progress">
+      ${items
+        .map(
+          (item) => `
+        <li class="step-guide-check${item.done ? " is-done" : ""}">
+          <span class="step-guide-check-icon" aria-hidden="true">${item.done ? "✓" : "○"}</span>
+          <span>${escapeHtml(item.label)}</span>
+        </li>`
+        )
+        .join("")}
+    </ul>`;
+}
+
+function renderStepGuide(stepKey, session) {
+  const lane = STEP_LANE[stepKey];
+  if (!lane) return "";
+  const checklist = getStepChecklist(stepKey, session);
+  return `
+    <aside class="step-guide step-guide-${lane.lane}" aria-label="Step guide">
+      <div class="step-guide-head">
+        <span class="step-guide-lane">${escapeHtml(lane.label)}</span>
+        <p class="step-guide-goal">${escapeHtml(lane.goal)}</p>
+      </div>
+      ${renderStepChecklist(checklist)}
+    </aside>`;
+}
+
+function renderStepLaneGroup(label, description, sectionsHtml) {
+  return `
+    <div class="step-lane-group">
+      <div class="step-lane-head">
+        <span class="step-lane-label">${escapeHtml(label)}</span>
+        ${description ? `<p class="step-lane-desc">${escapeHtml(description)}</p>` : ""}
+      </div>
+      ${sectionsHtml}
+    </div>`;
 }
 
 function renderStepSection(title, content, hint = "") {
@@ -2408,7 +2856,7 @@ function renderFlowSheet(barHtml, bodyHtml, footerHtml = "") {
     <div class="flow-panel">
       <article class="flow-sheet">
         ${barHtml ? `<div class="flow-sheet-bar">${barHtml}</div>` : ""}
-        ${bodyHtml}
+        <div class="step-panel-content">${bodyHtml}</div>
         ${footerHtml}
       </article>
     </div>`;
@@ -2503,14 +2951,18 @@ function renderStepCollapseSection(sessionId, stepKey, sectionKey, title, bodyHt
   const editIcon = options.editable
     ? `<span class="step-collapse-edit-icon" aria-hidden="true" title="Editable"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></span>`
     : "";
+  const sourceBadge = options.source ? renderSourceBadge(options.source) : "";
   const preview = options.preview
     ? `<p class="step-collapse-preview">${escapeHtml(options.preview)}</p>`
     : "";
   return `
-    <details class="step-collapse${options.editable ? " is-editable" : ""}" data-step="${escapeHtml(stepKey)}" data-step-section="${escapeHtml(sectionKey)}"${open ? " open" : ""}>
+    <details class="step-collapse${options.editable ? " is-editable" : ""}${options.source ? ` has-source-${options.source}` : ""}" data-step="${escapeHtml(stepKey)}" data-step-section="${escapeHtml(sectionKey)}"${open ? " open" : ""}>
       <summary class="step-collapse-summary">
         <div class="step-collapse-summary-main">
-          <span class="section-kicker step-collapse-title">${escapeHtml(title)}</span>
+          <span class="step-collapse-title-row">
+            <span class="section-kicker step-collapse-title">${escapeHtml(title)}</span>
+            ${sourceBadge}
+          </span>
           ${preview}
         </div>
         <span class="step-collapse-summary-icons">
@@ -2581,6 +3033,18 @@ function attendNotesPreview(notes) {
   if (!notes?.trim()) return "No notes yet — tap to add your capture…";
   const lines = notes.trim().split("\n").filter(Boolean).slice(0, 4);
   return attendCollapsePreview(lines.join(" · "));
+}
+
+function attendTranscriptPreview(session) {
+  const parts = [];
+  if (session.eventTranscript?.trim()) {
+    parts.push(attendCollapsePreview(session.eventTranscript));
+  }
+  if (session.organizedNotes?.trim()) {
+    parts.push("AI notes ready");
+  }
+  if (!parts.length) return "Paste a transcript from Otter, Fireflies, or voice memo";
+  return parts.join(" · ");
 }
 
 function attendTakeawaysPreview(claims) {
@@ -2689,6 +3153,30 @@ function renderAttendNotesBody(session, captures) {
     </div>`;
 }
 
+function renderAttendTranscriptBody(session) {
+  const hasTranscript = Boolean(session.eventTranscript?.trim());
+  const hasOrganized = Boolean(session.organizedNotes?.trim());
+  return `
+    <div class="attend-notes-subsection">
+      <p class="section-kicker attend-subsection-kicker">Event transcript</p>
+      <p class="attend-transcript-lead">Paste a raw transcript from Otter, Fireflies, Zoom, or a voice memo transcription. Keep your handwritten notes above — this is separate source material.</p>
+      <textarea class="flow-notes attend-transcript-input" id="attend-transcript" rows="8" placeholder="Speaker 1: …&#10;Speaker 2: …">${escapeHtml(session.eventTranscript ?? "")}</textarea>
+      <div class="flow-inline-actions attend-transcript-actions">
+        <button type="button" class="btn btn-primary btn-compact" id="btn-organize-transcript"${hasTranscript ? "" : " disabled"}>${hasOrganized ? "Re-organize with AI" : "Organize with AI"}</button>
+        <span class="workflow-status" id="organize-transcript-status" aria-live="polite"></span>
+      </div>
+    </div>
+    <div class="attend-notes-subsection attend-organized-notes${hasOrganized ? "" : " is-empty"}">
+      <p class="section-kicker attend-subsection-kicker">AI-organized notes</p>
+      <p class="attend-transcript-lead">Structured notes generated from your transcript — edit freely before running Remember.</p>
+      <textarea class="flow-notes attend-organized-input" id="attend-organized-notes" rows="10" placeholder="Organize a transcript above, or paste your own structured notes here…">${escapeHtml(session.organizedNotes ?? "")}</textarea>
+    </div>
+    <div class="flow-inline-actions flow-inline-actions-end attend-save-row">
+      <span class="workflow-status" id="attend-transcript-save-status" aria-live="polite"></span>
+      <button type="button" class="btn btn-secondary btn-compact" id="btn-save-attend-transcript">Save transcript &amp; notes</button>
+    </div>`;
+}
+
 function renderAttendClaimRow(claim, key) {
   const text = resolveClaimText(claim);
   const isNonObvious = text.includes("[non-obvious]");
@@ -2703,7 +3191,7 @@ function renderAttendTakeawaysBody(session, claims, rawClaims, hasExtracted, ana
   if (!hasExtracted) {
     return `
       <div class="attend-takeaways-empty">
-        <p class="attend-takeaways-lead">Add notes above, then pull out what mattered from this event.</p>
+        <p class="attend-takeaways-lead">Add notes or a transcript above, then pull out what mattered from this event.</p>
         <div class="flow-inline-actions attend-analyze-row attend-analyze-row-center">
           ${renderAttendAnalyzeButton(analyzeLabel)}
           <span class="workflow-status" id="remember-status" aria-live="polite"></span>
@@ -2753,6 +3241,19 @@ function renderAttendSpeakerList(speakers, label) {
     </div>`;
 }
 
+function renderAttendStaleBanner(session) {
+  if (!session.notesStale) return "";
+  const lateStage = ["synthesized", "drafted", "reviewed"].includes(session.stage);
+  const warning = lateStage
+    ? "Your notes changed after Remember. Re-running may replace Think and Create output."
+    : "Your notes changed since Remember last ran.";
+  return `
+    <div class="attend-stale-banner" role="status">
+      <p>${escapeHtml(warning)}</p>
+      <button type="button" class="btn btn-secondary btn-compact" id="btn-reextract-notes">Re-run Remember</button>
+    </div>`;
+}
+
 function renderAttend(session) {
   const people = session.people ?? [];
   const rawClaims = session.claims ?? [];
@@ -2788,7 +3289,14 @@ function renderAttend(session) {
       "notes",
       "Your event notes",
       renderAttendNotesBody(session, captures),
-      { preview: attendNotesPreview(session.rawNotes ?? ""), editable: true }
+      { preview: attendNotesPreview(session.rawNotes ?? ""), editable: true, source: "you" }
+    ),
+    renderAttendCollapseSection(
+      session.id,
+      "transcript",
+      "Transcript & AI notes",
+      renderAttendTranscriptBody(session),
+      { preview: attendTranscriptPreview(session), editable: true, source: "you" }
     ),
     renderAttendCollapseSection(
       session.id,
@@ -2798,13 +3306,18 @@ function renderAttend(session) {
       {
         preview: hasExtracted
           ? attendTakeawaysPreview(claims.length ? claims : rawClaims)
-          : "Add notes, then analyze what mattered",
+          : "Add notes or a transcript, then analyze what mattered",
         editable: hasExtracted,
+        source: hasExtracted ? "ai" : "you-or-ai",
       }
     ),
   ];
 
-  return renderFlowSheet("", renderStepSections(session.id, "attend", sections));
+  const sheet = renderFlowSheet(
+    "",
+    `${renderStepGuide("attend", session)}${renderAttendStaleBanner(session)}${renderStepSections(session.id, "attend", sections)}`
+  );
+  return wrapStepPanel("attend", sheet);
 }
 
 function captureUrl(sessionId, captureId) {
@@ -2844,23 +3357,60 @@ function bindAttendPanel(session) {
   );
 
   const notesEl = panel.querySelector("#attend-notes");
+  const transcriptEl = panel.querySelector("#attend-transcript");
+  const organizedEl = panel.querySelector("#attend-organized-notes");
   const statusEl = panel.querySelector("#attend-save-status");
+  const transcriptSaveStatusEl = panel.querySelector("#attend-transcript-save-status");
+  const organizeStatusEl = panel.querySelector("#organize-transcript-status");
   const rememberStatusEl = panel.querySelector("#remember-status");
   const uploadStatusEl = panel.querySelector("#attend-upload-status");
   const fileInput = panel.querySelector("#attend-file-input");
+  const organizeBtn = panel.querySelector("#btn-organize-transcript");
 
   if (session.isSample) {
     notesEl?.setAttribute("readonly", "readonly");
+    transcriptEl?.setAttribute("readonly", "readonly");
+    organizedEl?.setAttribute("readonly", "readonly");
     panel.querySelector("#btn-save-attend-notes")?.setAttribute("disabled", "true");
+    panel.querySelector("#btn-save-attend-transcript")?.setAttribute("disabled", "true");
     panel.querySelector("#btn-save-takeaways")?.setAttribute("disabled", "true");
     panel.querySelector("#btn-attend-upload")?.setAttribute("disabled", "true");
     panel.querySelector("#btn-run-remember")?.setAttribute("disabled", "true");
+    organizeBtn?.setAttribute("disabled", "true");
     return;
   }
+
+  transcriptEl?.addEventListener("input", () => {
+    if (organizeBtn) organizeBtn.disabled = !transcriptEl.value.trim();
+  });
 
   panel.querySelector("#btn-run-remember")?.addEventListener("click", async () => {
     if (notesEl && notesEl.value !== (session.rawNotes ?? "")) {
       await saveNotes();
+    }
+    if (transcriptDirty()) {
+      await saveTranscript();
+    }
+    await runSessionWorkflow(session.id, "extract", rememberStatusEl, () => {
+      refreshAttendPanel(currentSession);
+    });
+  });
+
+  panel.querySelector("#btn-reextract-notes")?.addEventListener("click", async () => {
+    if (notesEl && notesEl.value !== (session.rawNotes ?? "")) {
+      await saveNotes();
+    }
+    if (transcriptDirty()) {
+      await saveTranscript();
+    }
+    const lateStage = ["synthesized", "drafted", "reviewed"].includes(session.stage);
+    if (lateStage) {
+      const ok = window.confirm(
+        "Re-running Remember may replace your Think and Create output. Continue?"
+      );
+      if (!ok) return;
+      await continueSessionAgent(session.id, { approve: "extract" });
+      return;
     }
     await runSessionWorkflow(session.id, "extract", rememberStatusEl, () => {
       refreshAttendPanel(currentSession);
@@ -2878,6 +3428,7 @@ function bindAttendPanel(session) {
       });
       currentSession = data.session;
       statusEl.textContent = "Saved";
+      refreshAttendPanel(currentSession);
       setTimeout(() => {
         if (statusEl.textContent === "Saved") statusEl.textContent = "";
       }, 2000);
@@ -2890,6 +3441,65 @@ function bindAttendPanel(session) {
   notesEl?.addEventListener("blur", () => {
     if (notesEl.value !== (currentSession?.rawNotes ?? "")) saveNotes();
   });
+
+  function transcriptDirty() {
+    const transcriptChanged = transcriptEl && transcriptEl.value !== (session.eventTranscript ?? "");
+    const organizedChanged = organizedEl && organizedEl.value !== (session.organizedNotes ?? "");
+    return transcriptChanged || organizedChanged;
+  }
+
+  async function saveTranscript() {
+    if (!transcriptEl && !organizedEl) return;
+    if (transcriptSaveStatusEl) transcriptSaveStatusEl.textContent = "Saving…";
+    try {
+      const data = await fetchJson(`/api/sessions/${session.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          eventTranscript: transcriptEl?.value ?? "",
+          organizedNotes: organizedEl?.value ?? "",
+        }),
+      });
+      currentSession = data.session;
+      if (transcriptSaveStatusEl) {
+        transcriptSaveStatusEl.textContent = "Saved";
+        setTimeout(() => {
+          if (transcriptSaveStatusEl.textContent === "Saved") transcriptSaveStatusEl.textContent = "";
+        }, 2000);
+      }
+      refreshAttendPanel(currentSession);
+    } catch (err) {
+      if (transcriptSaveStatusEl) transcriptSaveStatusEl.textContent = err.message ?? "Save failed";
+    }
+  }
+
+  panel.querySelector("#btn-save-attend-transcript")?.addEventListener("click", saveTranscript);
+  transcriptEl?.addEventListener("blur", () => {
+    if (transcriptDirty()) saveTranscript();
+  });
+  organizedEl?.addEventListener("blur", () => {
+    if (transcriptDirty()) saveTranscript();
+  });
+
+  organizeBtn?.addEventListener("click", async () => {
+    if (transcriptEl && transcriptEl.value !== (session.eventTranscript ?? "")) {
+      await saveTranscript();
+    }
+    if (!transcriptEl?.value.trim()) return;
+    if (organizeStatusEl) organizeStatusEl.textContent = "Organizing…";
+    organizeBtn.disabled = true;
+    try {
+      await runSessionWorkflow(session.id, "organize-transcript", organizeStatusEl, () => {
+        refreshAttendPanel(currentSession);
+      });
+    } catch (err) {
+      if (organizeStatusEl) organizeStatusEl.textContent = err.message ?? "Organize failed";
+    } finally {
+      if (organizeBtn) organizeBtn.disabled = !transcriptEl?.value.trim();
+    }
+  });
+
+  panel.querySelector("#btn-save-takeaways")?.addEventListener("click", saveTakeaways);
 
   async function saveTakeaways() {
     const takeawaysStatus = panel.querySelector("#attend-takeaways-status");
@@ -2926,8 +3536,6 @@ function bindAttendPanel(session) {
       if (takeawaysStatus) takeawaysStatus.textContent = err.message ?? "Save failed";
     }
   }
-
-  panel.querySelector("#btn-save-takeaways")?.addEventListener("click", saveTakeaways);
 
   panel.querySelectorAll("[data-add-row]").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -3047,19 +3655,34 @@ const WORKFLOW_UI = {
   "self-critique": { btn: "btn-run-review", running: "Reviewing…" },
 };
 
-async function runSessionWorkflow(sessionId, workflow, statusEl, onSuccess) {
+const TAB_AFTER_WORKFLOW = {
+  extract: "think",
+  synthesize: "connect",
+  draft: "create",
+  "self-critique": "review",
+};
+
+async function runSessionWorkflow(sessionId, workflow, statusEl, onSuccess, runOptions = {}) {
   const ui = WORKFLOW_UI[workflow] ?? {};
   const btn = document.getElementById(ui.btn);
   if (statusEl) statusEl.textContent = ui.running ?? "Running…";
   btn?.setAttribute("disabled", "true");
   try {
+    const body =
+      workflow === "draft" && runOptions.selectedThemeIds?.length
+        ? JSON.stringify({ selectedThemeIds: runOptions.selectedThemeIds })
+        : undefined;
     const data = await fetchJson(`/api/sessions/${sessionId}/workflows/${workflow}`, {
       method: "POST",
+      ...(body ? { headers: { "Content-Type": "application/json" }, body } : {}),
     });
     currentSession = data.session;
-    if (workflow === "self-critique") {
-      setActiveTab("review");
-      openStepSection(currentSession.id, "review", "scores");
+    const nextTab = TAB_AFTER_WORKFLOW[workflow];
+    if (nextTab) {
+      setActiveTab(nextTab);
+      if (workflow === "self-critique") {
+        openStepSection(currentSession.id, "review", "scores");
+      }
     }
     if (statusEl) {
       statusEl.textContent = data.leveledUp ? "Done — level up!" : "Done";
@@ -3069,6 +3692,43 @@ async function runSessionWorkflow(sessionId, workflow, statusEl, onSuccess) {
   } catch (err) {
     if (statusEl) statusEl.textContent = "";
     alert(err instanceof Error ? err.message : "Workflow failed");
+  } finally {
+    btn?.removeAttribute("disabled");
+  }
+}
+
+async function continueSessionAgent(sessionId, opts = {}) {
+  const statusEl = document.getElementById("agent-continue-status");
+  const btn = document.getElementById("btn-continue-event");
+  if (statusEl) statusEl.textContent = "Working…";
+  btn?.setAttribute("disabled", "true");
+  try {
+    const body = opts.approve ? { approve: opts.approve } : { maxSteps: 2 };
+    const data = await fetchJson(`/api/sessions/${sessionId}/agent/continue`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    currentSession = data.session;
+    if (data.stoppedForApproval && data.plan?.suggestedWorkflow) {
+      const ok = window.confirm(`${data.plan.reason}\n\nRun this step now?`);
+      if (ok) {
+        await continueSessionAgent(sessionId, { approve: data.plan.suggestedWorkflow });
+        return;
+      }
+    }
+    const lastTrace = data.trace?.[data.trace.length - 1];
+    if (statusEl) {
+      statusEl.textContent = lastTrace?.detail ?? (data.leveledUp ? "Done — level up!" : "Done");
+    }
+    if (data.session.stage === "extracted") setActiveTab("think");
+    if (data.session.stage === "synthesized") setActiveTab("connect");
+    if (data.session.stage === "drafted") setActiveTab("create");
+    if (data.session.stage === "reviewed") setActiveTab("review");
+    renderSessionView();
+  } catch (err) {
+    if (statusEl) statusEl.textContent = "";
+    alert(err instanceof Error ? err.message : "Continue failed");
   } finally {
     btn?.removeAttribute("disabled");
   }
@@ -3145,7 +3805,8 @@ function bindThinkPanel(session) {
         }),
       });
       currentSession = data.session;
-      if (statusEl) {
+      applyLearningsSaveFeedback(data, statusEl);
+      if (statusEl && !data.learningsAdded?.length) {
         statusEl.textContent = "Saved";
         setTimeout(() => {
           if (statusEl.textContent === "Saved") statusEl.textContent = "";
@@ -3312,9 +3973,10 @@ function renderThink(session) {
       session.id,
       "think",
       "mattered",
-      "What mattered",
-      `<textarea class="flow-notes flow-notes-inline" id="think-mattered-line" rows="2" placeholder="The single insight you want to carry forward…"${thinkEditable ? "" : " readonly"}>${escapeHtml(matteredValue)}</textarea>`,
-      { editable: thinkEditable }
+      "What mattered — your take",
+      `<p class="field-source-hint">Write the one insight you want to carry forward, in your own words.</p>
+      <textarea class="flow-notes flow-notes-inline" id="think-mattered-line" rows="3" placeholder="e.g. The real wedge isn't model accuracy — it's whether the agentic workflow earns trust in production…"${thinkEditable ? "" : " readonly"}>${escapeHtml(matteredValue)}</textarea>`,
+      { editable: thinkEditable, source: "you", defaultOpen: true }
     ),
     renderStepCollapseSection(
       session.id,
@@ -3322,7 +3984,7 @@ function renderThink(session) {
       "questions",
       "Questions to sit with",
       renderThinkQuestionsBody(challenges, session),
-      { editable: thinkEditable }
+      { editable: thinkEditable, source: "ai" }
     ),
     renderStepCollapseSection(
       session.id,
@@ -3330,29 +3992,123 @@ function renderThink(session) {
       "work-links",
       "Links to your work",
       renderThinkWorkLinksBody(themes, session),
-      { editable: thinkEditable }
+      { editable: thinkEditable, source: "ai" }
     ),
     renderStepCollapseSection(
       session.id,
       "think",
       "angles",
-      "Interesting angles",
+      "Post-worthy angles",
       renderThinkAnglesBody(angles, session),
-      { editable: thinkEditable }
+      { editable: thinkEditable, source: "ai" }
     ),
   ];
 
   const actions = renderThinkActionsBody(session);
 
-  return renderFlowSheet("", `${renderStepSections(session.id, "think", sections)}${actions}`);
+  const reflectSections = sections.slice(0, 2);
+  const applySections = sections.slice(2);
+
+  const body = renderFlowSheet(
+    "",
+    `${renderStepGuide("think", session)}
+    ${renderStepLaneGroup("Reflect", "What stood out and what to sit with", renderStepSections(session.id, "think", reflectSections))}
+    ${renderStepLaneGroup("Apply to your work", "Themes and angles that become your posts", renderStepSections(session.id, "think", applySections))}
+    ${actions}`
+  );
+
+  return wrapStepPanel("think", body);
 }
 
 function canEditCreate(session) {
   return session.stage !== "ingested" && session.stage !== "extracted";
 }
 
-function getCreateThemes(session) {
-  return (session.themes ?? []).filter((t) => t.label?.trim());
+function getSelectableTopics(session) {
+  const themes = getCreateThemes(session);
+  if (themes.length) {
+    return themes.map((t) => ({
+      id: t.id,
+      label: t.label,
+      detail: t.profileConnection ?? "",
+    }));
+  }
+  return (session.contentAngles ?? [])
+    .filter((a) => a.title?.trim())
+    .map((a) => ({
+      id: a.id,
+      label: a.title,
+      detail: a.nonObviousInsight ?? "",
+    }));
+}
+
+function getSelectedTopicIds(session) {
+  const topics = getSelectableTopics(session);
+  const valid = new Set(topics.map((t) => t.id));
+  return (session.selectedThemeIds ?? []).filter((id) => valid.has(id));
+}
+
+function createTopicHint(selectedCount) {
+  if (selectedCount === 0) return "Select at least one topic to enable draft generation.";
+  if (selectedCount === 1) return "1 topic selected — we'll create 2 different LinkedIn post drafts.";
+  if (selectedCount === 2) return "2 topics selected — one draft per topic.";
+  return `${selectedCount} topics selected — one draft per topic.`;
+}
+
+function renderCreateVoiceInline() {
+  const posts = dashboardData?.profile?.pastPostExamples ?? [];
+  const real = posts.filter((p) => p.length > 80 && !/paste your best|example structure/i.test(p));
+  if (real.length >= 2) {
+    return `<p class="create-voice-inline create-voice-ok">${real.length} voice samples loaded — drafts will match your style.</p>`;
+  }
+  return `<p class="create-voice-inline create-voice-warn">No voice samples yet — <button type="button" class="text-link-btn" data-open-lens-voice">add 2+ LinkedIn posts in Your Lens</button> so drafts sound like you.</p>`;
+}
+
+function renderCreateTopicPicker(session) {
+  const topics = getSelectableTopics(session).slice(0, 4);
+  const selected = new Set(getSelectedTopicIds(session));
+
+  if (!canEditCreate(session)) {
+    return renderFlowEmpty("Complete Think first — topics come from your themes.");
+  }
+  if (!topics.length) {
+    return renderFlowEmpty("Run Think and save at least one theme — then pick which topics deserve a LinkedIn post.");
+  }
+
+  return `
+    ${renderCreateVoiceInline()}
+    <p class="create-topic-lead">Choose 1–2 topics. ${topics.length === 1 ? "We'll generate 2 draft variations." : "One draft per topic."}</p>
+    <ul class="create-topic-list">
+      ${topics
+        .map(
+          (t) => `
+        <li>
+          <label class="create-topic-card${selected.has(t.id) ? " is-selected" : ""}">
+            <input type="checkbox" class="create-topic-check" name="create-topic" value="${escapeHtml(t.id)}" ${selected.has(t.id) ? "checked" : ""} />
+            <span class="create-topic-body">
+              <strong>${escapeHtml(t.label)}</strong>
+              ${t.detail ? `<p>${escapeHtml(t.detail)}</p>` : ""}
+            </span>
+          </label>
+        </li>`
+        )
+        .join("")}
+    </ul>
+    <p class="create-topic-hint" id="create-topic-hint">${escapeHtml(createTopicHint(selected.size))}</p>`;
+}
+
+function readCreateTopicSelection(panel) {
+  return [...(panel?.querySelectorAll(".create-topic-check:checked") ?? [])].map((el) => el.value);
+}
+
+async function saveSelectedTopics(sessionId, selectedThemeIds) {
+  const data = await fetchJson(`/api/sessions/${sessionId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ selectedThemeIds }),
+  });
+  currentSession = data.session;
+  return data.session;
 }
 
 function getLinkedInDrafts(session) {
@@ -3415,22 +4171,6 @@ function renderCreateFollowupRow(f, session, key) {
     </li>`;
 }
 
-function renderCreateAnglesBody(session, angles) {
-  if (!canEditCreate(session)) {
-    return renderFlowEmpty("Complete Think before editing content angles…");
-  }
-  return `
-    <div class="flow-editable-list" data-editable-list="create-angles">
-      ${
-        angles.length
-          ? ""
-          : `<p class="flow-empty flow-editable-empty">Add a content angle, or run Create to generate suggestions…</p>`
-      }
-      <ul class="flow-rows">${angles.map((a, i) => renderThinkAngleRow(a, i)).join("")}</ul>
-      ${renderFlowAddRowButton("create-angle", "Add angle")}
-    </div>`;
-}
-
 function renderCreateDraftsBody(session, drafts) {
   return renderCreateLinkedInDraftsBody(session);
 }
@@ -3456,38 +4196,30 @@ function renderCreateActionsBody(session, angles, drafts, followUps) {
     return `<p class="step-footer-hint">Complete Think on the previous tab first…</p>`;
   }
 
-  const themes = getCreateThemes(session);
+  const topics = getSelectableTopics(session);
+  const selectedCount = getSelectedTopicIds(session).length;
   const linkedInDrafts = getLinkedInDrafts(session).filter((d) => String(d.body ?? "").trim());
   const parts = [];
 
-  if (!themes.length) {
-    parts.push(
-      `<p class="step-footer-hint">Run Think and save themes — Create turns those into LinkedIn post drafts.</p>`
-    );
-  } else if (!linkedInDrafts.length) {
-    const hasPartialOutput = angles.length > 0 || followUps.length > 0;
-    const label = hasPartialOutput ? "Regenerate LinkedIn drafts" : "Generate LinkedIn drafts";
+  if (!topics.length) {
+    parts.push(`<p class="step-footer-hint">Run Think and save themes — then pick topics here.</p>`);
+  } else if (selectedCount > 0 && !linkedInDrafts.length) {
+    const label = drafts.length > 0 ? "Regenerate LinkedIn drafts" : "Generate LinkedIn drafts";
     parts.push(
       renderStepActionRow(
         `
         <button type="button" class="btn btn-primary btn-compact" id="btn-run-create">${label}</button>
         <span class="workflow-status" id="create-status" aria-live="polite"></span>`,
-        "center"
-      )
-    );
-  }
-
-  if (canEditCreate(session)) {
-    parts.push(
-      renderStepActionRow(
-        `
-        <span class="workflow-status" id="create-save-status" aria-live="polite"></span>
-        <button type="button" class="btn btn-secondary btn-compact" id="btn-save-create">Save edits</button>`
+        "end"
       )
     );
   }
 
   return parts.join("");
+}
+
+function getCreateThemes(session) {
+  return (session.themes ?? []).filter((t) => t.label?.trim());
 }
 
 function renderCreate(session) {
@@ -3496,50 +4228,70 @@ function renderCreate(session) {
   const angles = session.contentAngles ?? [];
   const followUps = session.followUpDrafts ?? [];
   const createEditable = canEditCreate(session);
-  const themeCount = getCreateThemes(session).length;
+  const selectedCount = getSelectedTopicIds(session).length;
+  const hasDrafts = linkedInDrafts.length > 0;
 
-  const sections = [
-    renderStepCollapseSection(
-      session.id,
-      "create",
-      "angles",
-      "Content angles",
-      renderCreateAnglesBody(session, angles),
-      { editable: createEditable }
-    ),
-    renderStepCollapseSection(
-      session.id,
-      "create",
-      "linkedin",
-      "LinkedIn post drafts",
-      renderCreateLinkedInDraftsBody(session),
-      {
-        editable: createEditable,
-        preview: linkedInDrafts.length
-          ? attendCollapsePreview(
-              linkedInDrafts
-                .map((d) => resolveDraftSourceLabel(d, session))
-                .slice(0, 2)
-                .join(" · ")
-            )
-          : themeCount
-            ? `${themeCount} theme${themeCount === 1 ? "" : "s"} ready — generate drafts`
-            : "Add Think themes first",
-      }
-    ),
-    renderStepCollapseSection(
-      session.id,
-      "create",
-      "followups",
-      "Follow-up messages",
-      renderCreateFollowupsBody(session, followUps),
-      { editable: createEditable }
-    ),
-  ];
+  const topicSection = renderStepCollapseSection(
+    session.id,
+    "create",
+    "topics",
+    "Choose topics & generate",
+    `${renderCreateTopicPicker(session)}${renderCreateActionsBody(session, angles, drafts, followUps)}`,
+    {
+      editable: createEditable,
+      defaultOpen: true,
+      source: "you",
+      preview: selectedCount
+        ? `${selectedCount} selected`
+        : "Pick 1–2 themes from Think",
+    }
+  );
 
-  const actions = renderCreateActionsBody(session, angles, drafts, followUps);
+  const draftSection = hasDrafts
+    ? renderStepCollapseSection(
+        session.id,
+        "create",
+        "linkedin",
+        "LinkedIn drafts",
+        renderCreateLinkedInDraftsBody(session),
+        {
+          editable: createEditable,
+          source: "ai",
+          defaultOpen: true,
+          preview: linkedInDrafts
+            .map((d) => resolveDraftSourceLabel(d, session))
+            .slice(0, 2)
+            .join(" · "),
+        }
+      )
+    : "";
 
-  return renderFlowSheet("", `${renderStepSections(session.id, "create", sections)}${actions}`);
+  const followupSection =
+    followUps.length > 0
+      ? renderStepCollapseSection(
+          session.id,
+          "create",
+          "followups",
+          "Follow-up messages",
+          renderCreateFollowupsBody(session, followUps),
+          { editable: createEditable, source: "ai", defaultOpen: false }
+        )
+      : "";
+
+  const saveRow = hasDrafts
+    ? renderStepActionRow(
+        `
+        <span class="workflow-status" id="create-save-status" aria-live="polite"></span>
+        <button type="button" class="btn btn-secondary btn-compact" id="btn-save-create">Save edits</button>`
+      )
+    : "";
+
+  const body = renderFlowSheet(
+    "",
+    `${renderStepGuide("create", session)}${renderStepSections(session.id, "create", [topicSection, draftSection, followupSection].filter(Boolean))}${saveRow}`
+  );
+
+  return wrapStepPanel("create", body);
 }
 
 function bindCreatePanel(session) {
@@ -3547,6 +4299,44 @@ function bindCreatePanel(session) {
   if (!panel) return;
 
   bindStepCollapseHandlers(panel, session.id, "create");
+
+  panel.querySelectorAll("[data-goto-tab]").forEach((btn) => {
+    btn.addEventListener("click", () => setActiveTab(btn.dataset.gotoTab));
+  });
+
+  panel.querySelector("[data-open-lens-voice]")?.addEventListener("click", () => openLensModal());
+
+  const hintEl = panel.querySelector("#create-topic-hint");
+
+  function syncTopicCards() {
+    const selected = readCreateTopicSelection(panel);
+    panel.querySelectorAll(".create-topic-card").forEach((card) => {
+      const input = card.querySelector(".create-topic-check");
+      card.classList.toggle("is-selected", Boolean(input?.checked));
+    });
+    if (hintEl) hintEl.textContent = createTopicHint(selected.length);
+    const generateBtn = panel.querySelector("#btn-run-create");
+    if (generateBtn) generateBtn.disabled = selected.length === 0;
+  }
+
+  panel.querySelectorAll(".create-topic-check").forEach((input) => {
+    input.addEventListener("change", async () => {
+      let selected = readCreateTopicSelection(panel);
+      if (selected.length > 2) {
+        input.checked = false;
+        selected = readCreateTopicSelection(panel);
+        if (hintEl) hintEl.textContent = "Pick at most 2 topics.";
+      }
+      syncTopicCards();
+      try {
+        await saveSelectedTopics(session.id, selected);
+        renderSessionView();
+      } catch (err) {
+        if (hintEl) hintEl.textContent = err.message ?? "Could not save selection";
+      }
+    });
+  });
+  syncTopicCards();
 
   if (session.isSample) {
     panel.querySelector("#btn-run-create")?.setAttribute("disabled", "true");
@@ -3558,29 +4348,28 @@ function bindCreatePanel(session) {
   }
 
   panel.querySelector("#btn-run-create")?.addEventListener("click", async () => {
-    await runSessionWorkflow(session.id, "draft", panel.querySelector("#create-status"));
+    const selectedThemeIds = readCreateTopicSelection(panel);
+    if (!selectedThemeIds.length) {
+      if (hintEl) hintEl.textContent = "Select at least one topic first.";
+      return;
+    }
+    try {
+      await saveSelectedTopics(session.id, selectedThemeIds);
+    } catch (err) {
+      alert(err.message ?? "Could not save topic selection");
+      return;
+    }
+    await runSessionWorkflow(
+      session.id,
+      "draft",
+      panel.querySelector("#create-status"),
+      undefined,
+      { selectedThemeIds }
+    );
   });
 
   async function saveCreateEdits() {
     const statusEl = panel.querySelector("#create-save-status");
-
-    const contentAngles = [...panel.querySelectorAll("[data-angle-row]")].map((block, i) => {
-      const existingId = block.dataset.angleId;
-      const existing = (session.contentAngles ?? []).find((a) => a.id === existingId);
-      return {
-        ...(existing ?? {
-          id: existingId || `angle-${i + 1}`,
-          hook: "",
-          rationale: "",
-          expertiseLens: [],
-          platforms: [],
-          predictedAudience: "",
-          claimIds: [],
-        }),
-        title: block.querySelector('[data-field="title"]')?.value ?? "",
-        nonObviousInsight: block.querySelector('[data-field="nonObviousInsight"]')?.value ?? "",
-      };
-    });
 
     const contentDrafts = [...panel.querySelectorAll("[data-draft-row]")].map((block, i) => {
       const existingId = block.dataset.draftId;
@@ -3617,10 +4406,11 @@ function bindCreatePanel(session) {
       const data = await fetchJson(`/api/sessions/${session.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contentAngles, contentDrafts, followUpDrafts }),
+        body: JSON.stringify({ contentDrafts, followUpDrafts }),
       });
       currentSession = data.session;
-      if (statusEl) {
+      applyLearningsSaveFeedback(data, statusEl);
+      if (statusEl && !data.learningsAdded?.length) {
         statusEl.textContent = "Saved";
         setTimeout(() => {
           if (statusEl.textContent === "Saved") statusEl.textContent = "";
@@ -3668,15 +4458,7 @@ function bindCreatePanel(session) {
       if (!rows) return;
       list.querySelector(".flow-editable-empty")?.remove();
 
-      if (rowType === "create-angle") {
-        rows.insertAdjacentHTML(
-          "beforeend",
-          renderThinkAngleRow(
-            { id: `angle-new-${Date.now()}`, title: "", nonObviousInsight: "", hook: "", rationale: "" },
-            Date.now()
-          )
-        );
-      } else if (rowType === "create-followup") {
+      if (rowType === "create-followup") {
         rows.insertAdjacentHTML(
           "beforeend",
           renderCreateFollowupRow({ id: `followup-new-${Date.now()}`, personId: "", message: "" }, session, Date.now())
@@ -3729,6 +4511,35 @@ function renderReviewScoreCriteriaNote() {
     </div>`;
 }
 
+function effectiveReviewScore(evalScores, key) {
+  if (!evalScores) return 0;
+  const override = evalScores.humanOverride?.[key];
+  return normalizeReviewScore(override ?? evalScores[key]);
+}
+
+function renderReviewOverrideForm(session) {
+  const e = session.evalScores;
+  if (!e || session.isSample) return "";
+  return `
+    <div class="review-override-panel">
+      <p class="review-override-heading">Correct the scores</p>
+      <p class="field-hint">If the AI scored itself too high, lower the number. Saves to your lens for the next event.</p>
+      <div class="review-override-grid">
+        ${REVIEW_SCORE_KEYS.map(
+          ({ key, label }) => `
+          <label class="review-override-field">
+            <span>${label}</span>
+            <input type="number" min="1" max="5" step="1" id="eval-override-${key}" value="${effectiveReviewScore(e, key)}" />
+          </label>`
+        ).join("")}
+      </div>
+      <div class="flow-inline-actions">
+        <button type="button" class="btn btn-secondary btn-compact" id="btn-save-eval-override">Save corrections to lens</button>
+        <span class="workflow-status" id="eval-override-status" aria-live="polite"></span>
+      </div>
+    </div>`;
+}
+
 function renderReviewScoresBody(session) {
   const e = session.evalScores;
   const hasDrafts = (session.contentDrafts ?? []).length > 0;
@@ -3746,11 +4557,22 @@ function renderReviewScoresBody(session) {
 
   return `
     <div class="score-grid score-grid-modern flow-score-grid">
-      ${REVIEW_SCORE_KEYS.map(({ key, label }) =>
-        scoreCell(label, normalizeReviewScore(e[key]), scoreTone(e[key]), e.justifications?.[key])
-      ).join("")}
+      ${REVIEW_SCORE_KEYS.map(({ key, label }) => {
+        const aiScore = normalizeReviewScore(e[key]);
+        const displayScore = effectiveReviewScore(e, key);
+        const overridden = e.humanOverride?.[key] !== undefined;
+        const tone = scoreTone(displayScore);
+        return scoreCell(
+          label,
+          displayScore,
+          tone,
+          e.justifications?.[key],
+          overridden ? `AI scored ${aiScore}` : ""
+        );
+      }).join("")}
     </div>
     ${e.notes ? `<p class="flow-prose flow-review-note">${escapeHtml(e.notes)}</p>` : ""}
+    ${renderReviewOverrideForm(session)}
     ${criteriaNote}`;
 }
 
@@ -3787,7 +4609,8 @@ function renderReview(session) {
 
   const actions = renderReviewActionsBody(session);
 
-  return renderFlowSheet("", `${renderStepSections(session.id, "review", sections)}${actions}`);
+  const body = renderFlowSheet("", `${renderStepGuide("review", session)}${renderStepSections(session.id, "review", sections)}${actions}`);
+  return wrapStepPanel("review", body);
 }
 
 function bindReviewPanel(session) {
@@ -3802,6 +4625,38 @@ function bindReviewPanel(session) {
   }
   panel.querySelector("#btn-run-review")?.addEventListener("click", async () => {
     await runSessionWorkflow(session.id, "self-critique", panel.querySelector("#review-status"));
+  });
+
+  panel.querySelector("#btn-save-eval-override")?.addEventListener("click", async () => {
+    const statusEl = panel.querySelector("#eval-override-status");
+    const humanOverride = {};
+    for (const { key } of REVIEW_SCORE_KEYS) {
+      const input = panel.querySelector(`#eval-override-${key}`);
+      if (!input) continue;
+      const value = Number(input.value);
+      if (Number.isFinite(value)) humanOverride[key] = Math.min(5, Math.max(1, Math.round(value)));
+    }
+    if (statusEl) statusEl.textContent = "Saving…";
+    try {
+      const data = await fetchJson(`/api/sessions/${session.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ evalScores: { humanOverride } }),
+      });
+      currentSession = data.session;
+      applyLearningsSaveFeedback(data, statusEl);
+      if (statusEl && !data.learningsAdded?.length) {
+        statusEl.textContent = "Saved to your lens";
+      }
+      renderSessionView();
+      if (dashboardData && data.learningsAdded?.length) {
+        await ensureDashboardData();
+        renderLens(dashboardData.profile, dashboardData.lensImpact);
+      }
+    } catch (err) {
+      if (statusEl) statusEl.textContent = "";
+      alert(err instanceof Error ? err.message : "Save failed");
+    }
   });
 }
 
@@ -3822,12 +4677,12 @@ function renderConnectDraftsBody(session) {
       <p class="flow-meta-line"><span class="flow-meta">Your lens</span> ${escapeHtml(draft.lensAngle)}</p>
       <p class="flow-prose flow-quote">${escapeHtml(draft.message)}</p>
       <div class="flow-connect-actions">
+        <button type="button" class="btn btn-secondary btn-compact" data-copy-connect="${escapeHtml(draft.id)}">Copy invitation</button>
         ${
           draft.linkedInUrl
             ? `<a href="${escapeHtml(draft.linkedInUrl)}" target="_blank" rel="noopener" class="btn btn-text btn-compact">LinkedIn →</a>`
-            : `<span class="flow-row-detail">No LinkedIn on page</span>`
+            : ""
         }
-        <button type="button" class="btn btn-secondary btn-compact" data-copy-connect="${escapeHtml(draft.id)}">Copy invitation</button>
       </div>
     </li>`;
 
@@ -3860,8 +4715,11 @@ function renderConnectDraftsBody(session) {
 
 function renderConnect(session) {
   const body = renderConnectDraftsBody(session);
-  const section = renderStepCollapseSection(session.id, "connect", "drafts", "Connection drafts", body);
-  return renderFlowSheet("", renderStepSections(session.id, "connect", [section]));
+  const section = renderStepCollapseSection(session.id, "connect", "drafts", "Connection drafts", body, {
+    defaultOpen: true,
+  });
+  const content = renderFlowSheet("", `${renderStepGuide("connect", session)}${renderStepSections(session.id, "connect", [section])}`);
+  return wrapStepPanel("connect", content);
 }
 
 function bindConnectPanel(session) {
@@ -4046,8 +4904,8 @@ function getMatteredLine(session) {
   return "Capture what stood out from this event.";
 }
 
-function scoreCell(label, val, tone = "", justification = "") {
-  return `<div class="score score-${tone}"><div class="val"><span class="score-number">${val}</span><span class="score-denom">/${REVIEW_SCORE_MAX}</span></div><div class="label">${label}</div>${justification ? `<p class="score-rationale">${escapeHtml(justification)}</p>` : ""}</div>`;
+function scoreCell(label, val, tone = "", justification = "", meta = "") {
+  return `<div class="score score-${tone}"><div class="val"><span class="score-number">${val}</span><span class="score-denom">/${REVIEW_SCORE_MAX}</span></div><div class="label">${label}</div>${justification ? `<p class="score-rationale">${escapeHtml(justification)}</p>` : ""}${meta ? `<p class="score-meta">${escapeHtml(meta)}</p>` : ""}</div>`;
 }
 
 function escapeHtml(str) {
@@ -4134,20 +4992,35 @@ document.getElementById("btn-copy-lens-prompt")?.addEventListener("click", async
   if (btn) btn.disabled = true;
   try {
     const prompt = await getLensImportPrompt();
-    await navigator.clipboard.writeText(prompt);
-    if (btn) {
-      const prev = btn.textContent;
-      btn.textContent = "Copied!";
-      setTimeout(() => {
-        btn.textContent = prev;
-      }, 2000);
+    const copied = await copyTextToClipboard(prompt);
+    if (copied) {
+      if (btn) {
+        const prev = btn.textContent;
+        btn.textContent = "Copied!";
+        setTimeout(() => {
+          btn.textContent = prev;
+        }, 2000);
+      }
+      setLensImportStatus("Prompt copied — paste it in ChatGPT or Claude, then paste the response below.");
+    } else {
+      showLensPromptPreview(prompt);
+      setLensImportStatus("Select the prompt below and copy manually (⌘C / Ctrl+C).", true);
     }
-    setLensImportStatus("Prompt copied — paste it in ChatGPT or Claude, then paste the response below.");
-  } catch {
-    setLensImportStatus("Could not load or copy the prompt. Try again.", true);
+  } catch (err) {
+    const prompt = LENS_IMPORT_PROMPT_FALLBACK;
+    showLensPromptPreview(prompt);
+    setLensImportStatus(
+      err instanceof Error ? err.message : "Could not load prompt — use the text area below to copy manually.",
+      true
+    );
   } finally {
     if (btn) btn.disabled = false;
   }
+});
+
+document.getElementById("btn-show-lens-prompt")?.addEventListener("click", async () => {
+  const prompt = await getLensImportPrompt();
+  showLensPromptPreview(prompt);
 });
 
 document.getElementById("btn-apply-lens-import")?.addEventListener("click", () => {
@@ -4157,7 +5030,7 @@ document.getElementById("btn-apply-lens-import")?.addEventListener("click", () =
     setLensImportStatus(result.error, true);
     return;
   }
-  setLensImportStatus(`Applied ${result.applied} field${result.applied === 1 ? "" : "s"}. Review and edit, then Save lens.`);
+  setLensImportStatus(`Applied ${result.applied} field${result.applied === 1 ? "" : "s"}. Review the form — especially Past LinkedIn posts — then Save lens.`);
 });
 
 document.getElementById("btn-close-connections").addEventListener("click", () => document.getElementById("modal-connections").close());
@@ -4311,36 +5184,67 @@ document.getElementById("form-lens").addEventListener("submit", async (e) => {
   const data = new FormData(e.target);
   const errEl = document.getElementById("lens-error");
   errEl.classList.add("hidden");
-  const res = await authFetch("/api/profile", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      name: data.get("name"),
-      tagline: data.get("tagline"),
-      currentRole: data.get("currentRole"),
-      education: data.get("education"),
-      expertiseAreas: linesToArray(data.get("expertiseAreas")),
-      contentPriorities: linesToArray(data.get("contentPriorities")),
-      pastPostExamples: linesToArray(data.get("pastPostExamples")),
-    }),
-  });
-  const result = await res.json();
-  if (!res.ok) {
-    errEl.textContent = result.error ?? "Failed to save";
+
+  const name = String(data.get("name") ?? "").trim();
+  if (!name || name.length > 120) {
+    errEl.textContent =
+      name.length > 120
+        ? "Name looks too long — use Apply to form after pasting a ChatGPT response with ## headers."
+        : "Name is required.";
     errEl.classList.remove("hidden");
     return;
   }
-  if (walkthroughActive && walkthroughStep === 0) {
-    walkthroughTransitioning = true;
-    exitWalkthroughCompanion();
+
+  const submitBtn = e.target.querySelector('button[type="submit"]');
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Saving…";
+  }
+
+  try {
+    const res = await authFetch("/api/profile", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name,
+        tagline: data.get("tagline"),
+        currentRole: data.get("currentRole"),
+        education: data.get("education"),
+        expertiseAreas: linesToArray(data.get("expertiseAreas")),
+        contentPriorities: linesToArray(data.get("contentPriorities")),
+        voiceTraits: linesToArray(data.get("voiceTraits")),
+        avoidPatterns: linesToArray(data.get("avoidPatterns")),
+        assumptionPatterns: linesToArray(data.get("assumptionPatterns")),
+        pastPostExamples: paragraphsToArray(data.get("pastPostExamples")),
+        learnings: collectLensModalLearnings(),
+      }),
+    });
+    const result = await res.json();
+    if (!res.ok) {
+      errEl.textContent = result.error ?? "Failed to save";
+      errEl.classList.remove("hidden");
+      return;
+    }
+    if (walkthroughActive && walkthroughStep === 0) {
+      walkthroughTransitioning = true;
+      exitWalkthroughCompanion();
+      document.getElementById("modal-lens").close();
+      await loadDashboard();
+      await advanceWalkthroughStep(1, 0);
+      walkthroughTransitioning = false;
+      return;
+    }
     document.getElementById("modal-lens").close();
     await loadDashboard();
-    await advanceWalkthroughStep(1, 0);
-    walkthroughTransitioning = false;
-    return;
+  } catch (err) {
+    errEl.textContent = err instanceof Error ? err.message : "Failed to save";
+    errEl.classList.remove("hidden");
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Save lens";
+    }
   }
-  document.getElementById("modal-lens").close();
-  await loadDashboard();
 });
 
 document.getElementById("btn-close-event-outcome").addEventListener("click", () => {

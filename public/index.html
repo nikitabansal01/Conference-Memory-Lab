@@ -193,14 +193,21 @@
           <p class="field-hint">If you already brainstorm projects there with memory on, copy this prompt, paste it in your chat, then paste the response below.</p>
           <div class="lens-import-actions">
             <button type="button" class="btn btn-secondary btn-compact" id="btn-copy-lens-prompt">Copy import prompt</button>
+            <button type="button" class="btn btn-text btn-compact hidden" id="btn-show-lens-prompt">Show prompt to copy manually</button>
           </div>
-          <label class="field lens-import-paste">
-            <span>Paste response here</span>
-            <textarea id="lens-import-text" rows="4" placeholder="Paste the ## Name / ## Tagline / … response from your chatbot"></textarea>
+          <label class="field lens-prompt-preview hidden" id="lens-prompt-preview-wrap">
+            <span>Import prompt</span>
+            <textarea id="lens-prompt-preview" rows="6" readonly></textarea>
+            <p class="field-hint">Select all and copy if the button didn't work.</p>
           </label>
-          <button type="button" class="btn btn-text btn-compact" id="btn-apply-lens-import">Apply to form</button>
+          <label class="field lens-import-paste">
+            <span>Paste ChatGPT / Claude response here</span>
+            <textarea id="lens-import-text" rows="6" placeholder="Paste the full response with ## Name, ## Tagline, ## Learning goals & expertise, ## Past writing samples, etc."></textarea>
+          </label>
+          <button type="button" class="btn btn-secondary btn-compact" id="btn-apply-lens-import">Apply to form below</button>
           <p id="lens-import-status" class="lens-import-status hidden" aria-live="polite"></p>
         </section>
+        <p class="lens-section-divider">Or fill in manually</p>
         <label class="field">
           <span>Name</span>
           <input type="text" name="name" required />
@@ -226,11 +233,22 @@
           <span>Ongoing projects</span>
           <textarea name="contentPriorities" rows="2" placeholder="Where you apply event learnings — one per line"></textarea>
         </label>
-        <label class="field">
-          <span>Past post examples</span>
-          <textarea name="pastPostExamples" rows="4" placeholder="Paste LinkedIn posts or writing samples — one per paragraph block"></textarea>
-          <p class="field-hint">Helps match your voice. Separate posts with a blank line.</p>
-        </label>
+        <section class="lens-voice-panel">
+          <h3 class="lens-voice-title">Your LinkedIn voice <span class="source-badge source-you">You provide</span></h3>
+          <p class="field-hint lens-voice-lead">Paste 2–3 of your real LinkedIn posts here. Create uses these to match your writing style — without them, drafts sound generic.</p>
+          <label class="field">
+            <span>Past LinkedIn posts</span>
+            <textarea name="pastPostExamples" rows="8" placeholder="Paste full posts here. Separate each post with a blank line.&#10;&#10;Example:&#10;At the recent SF AI meetup, I kept thinking about...&#10;&#10;(blank line)&#10;&#10;Second post starts here..."></textarea>
+          </label>
+          <label class="field">
+            <span>How you write <span class="field-hint-inline">one trait per line</span></span>
+            <textarea name="voiceTraits" rows="3" placeholder="e.g. curious but grounded, names tradeoffs not hype, closes with a question"></textarea>
+          </label>
+          <label class="field">
+            <span>What to avoid in your writing</span>
+            <textarea name="avoidPatterns" rows="2" placeholder="e.g. emojis, generic AI hype, restating slides"></textarea>
+          </label>
+        </section>
         <p id="lens-error" class="form-error hidden"></p>
       </div>
       <footer class="modal-footer modal-footer-sticky">

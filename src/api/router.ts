@@ -18,7 +18,7 @@ import {
   getCumulativeActions,
 } from "../trust/levels.js";
 import { formatLevelBadge } from "../gamification/xp.js";
-import type { EventSession, EventType, ExpertiseProfile, TrustLevel, AssumptionChallenge, Theme, ContentAngle, Claim, ContentDraft, FollowUpDraft, ContentPlatform } from "../models/types.js";
+import type { EventSession, EventType, ExpertiseProfile, TrustLevel, AssumptionChallenge, Theme, ContentAngle, Claim, ContentDraft, FollowUpDraft, ContentPlatform, EvalScores, ProfileLearning } from "../models/types.js";
 import { createSession, applyEnrichmentTitle, resolveSessionTitle, titleFromEnrichment } from "../lib/session.js";
 import { getProfileStatus } from "../lib/profile-status.js";
 import { buildActionItems, buildAllActionItems, buildSessionActionItems, capabilitiesUnlocked, eventLinkNudge, sessionLoopLabel, sessionNextTab } from "../lib/actions.js";
@@ -45,8 +45,43 @@ import { getClerkPublishableKey, isAuthConfigured, getClerkSetupStatus, isLocalD
 import { isLlmConfigured } from "../lib/llm.js";
 import { runSessionWorkflow, type RunnableWorkflow } from "../lib/run-workflow.js";
 import { loadLensImportPrompt } from "../lib/lens-import-prompt.js";
+import {
+  captureLearningsFromSessionEdit,
+  captureLearningsFromEvalOverride,
+  deleteProfileLearning,
+  mergeEvalScores,
+  mergeProfileMemory,
+  normalizeProfileMemory,
+} from "../lib/profile-memory.js";
+import { withSessionMeta } from "../lib/session-meta.js";
+import { continueSession } from "../lib/agent/continue.js";
 
 const EVENT_TYPES: EventType[] = ["mixer", "panel", "conference", "webinar", "other"];
+
+const EVAL_DIMENSION_KEYS = ["grounding", "voice", "expertiseLens", "nonObviousness"] as const;
+
+function enrichSessionPayload(session: EventSession, profile: ExpertiseProfile) {
+  const normalizedSession = normalizeSessionClaims(session);
+  return {
+    ...withSessionMeta(normalizedSession),
+    eventLinkNudge: eventLinkNudge(normalizedSession),
+    eventLinkInfo: normalizedSession.eventUrl ? parseEventUrl(normalizedSession.eventUrl) : null,
+    connectionDrafts: buildConnectionDrafts(normalizedSession, profile),
+  };
+}
+
+function parseEvalHumanOverride(raw: unknown): EvalScores["humanOverride"] | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const record = raw as Record<string, unknown>;
+  const result: NonNullable<EvalScores["humanOverride"]> = {};
+  for (const key of EVAL_DIMENSION_KEYS) {
+    const value = Number(record[key]);
+    if (Number.isFinite(value)) {
+      result[key] = Math.min(5, Math.max(1, Math.round(value)));
+    }
+  }
+  return Object.keys(result).length ? result : undefined;
+}
 
 export interface ApiResult {
   status: number;
@@ -300,6 +335,7 @@ async function handleDashboard(auth: RequestAuth): Promise<ApiResult> {
         expertiseAreas: profile.expertiseAreas,
         contentPriorities: profile.contentPriorities?.slice(0, 3),
         status: profileStatus,
+        learnings: normalizeProfileMemory(profile).learnings?.slice().reverse().slice(0, 8) ?? [],
       },
       actions,
       allActions,
@@ -412,8 +448,23 @@ export async function routeApi(
   }
 
   if (pathname === "/api/profile" && method === "GET") {
-    const profile = await loadProfileOrExample(auth.userId);
+    const profile = normalizeProfileMemory(await loadProfileOrExample(auth.userId));
     return { status: 200, body: profile };
+  }
+
+  if (pathname === "/api/profile" && method === "PATCH") {
+    const body = parseRequestBody(rawBody) as { deleteLearningId?: string };
+    if (!body.deleteLearningId?.trim()) {
+      return { status: 400, body: { error: "deleteLearningId required" } };
+    }
+    const profile = await loadProfileOrExample(auth.userId);
+    const updated = deleteProfileLearning(profile, body.deleteLearningId.trim());
+    await saveProfile(updated, auth.userId);
+    const resume = await loadResume();
+    return {
+      status: 200,
+      body: { profile: updated, status: getProfileStatus(updated, Boolean(resume)) },
+    };
   }
 
   if (pathname === "/api/profile" && method === "PUT") {
@@ -424,7 +475,11 @@ export async function routeApi(
       ...body,
       expertiseAreas: body.expertiseAreas ?? existing.expertiseAreas,
       contentPriorities: body.contentPriorities ?? existing.contentPriorities,
+      voiceTraits: body.voiceTraits ?? existing.voiceTraits,
+      avoidPatterns: body.avoidPatterns ?? existing.avoidPatterns,
+      assumptionPatterns: body.assumptionPatterns ?? existing.assumptionPatterns,
       pastPostExamples: body.pastPostExamples ?? existing.pastPostExamples,
+      learnings: body.learnings ?? existing.learnings,
     };
     if (!updated.name?.trim()) {
       return { status: 400, body: { error: "Name is required" } };
@@ -578,6 +633,8 @@ export async function routeApi(
     const body = parseRequestBody(rawBody) as {
       eventUrl?: string;
       rawNotes?: string;
+      eventTranscript?: string;
+      organizedNotes?: string;
       screenshotDescriptions?: string[];
       attendanceIntent?: string;
       matteredLine?: string;
@@ -587,10 +644,14 @@ export async function routeApi(
       claims?: unknown;
       contentDrafts?: unknown;
       followUpDrafts?: unknown;
+      selectedThemeIds?: string[];
+      evalScores?: { humanOverride?: unknown };
     };
 
     const hasEventUrl = body.eventUrl !== undefined;
     const hasNotes = body.rawNotes !== undefined;
+    const hasTranscript = body.eventTranscript !== undefined;
+    const hasOrganizedNotes = body.organizedNotes !== undefined;
     const hasScreenshots = body.screenshotDescriptions !== undefined;
     const hasIntent = body.attendanceIntent !== undefined;
     const hasMatteredLine = body.matteredLine !== undefined;
@@ -600,15 +661,23 @@ export async function routeApi(
     const parsedClaims = parseClaims(body.claims);
     const parsedDrafts = parseContentDrafts(body.contentDrafts);
     const parsedFollowUps = parseFollowUpDrafts(body.followUpDrafts);
+    const parsedEvalOverride = parseEvalHumanOverride(body.evalScores?.humanOverride);
+    const parsedSelectedThemes = Array.isArray(body.selectedThemeIds)
+      ? body.selectedThemeIds.map(String).filter(Boolean)
+      : undefined;
     const hasThinkEdits =
       hasMatteredLine ||
       parsedChallenges !== undefined ||
       parsedThemes !== undefined ||
       parsedAngles !== undefined;
     const hasAttendEdits = parsedClaims !== undefined;
-    const hasCreateEdits = parsedDrafts !== undefined || parsedFollowUps !== undefined;
+    const hasCreateEdits =
+      parsedDrafts !== undefined ||
+      parsedFollowUps !== undefined ||
+      parsedSelectedThemes !== undefined;
+    const hasEvalOverride = parsedEvalOverride !== undefined;
 
-    if (!hasEventUrl && !hasNotes && !hasScreenshots && !hasIntent && !hasThinkEdits && !hasAttendEdits && !hasCreateEdits) {
+    if (!hasEventUrl && !hasNotes && !hasTranscript && !hasOrganizedNotes && !hasScreenshots && !hasIntent && !hasThinkEdits && !hasAttendEdits && !hasCreateEdits && !hasEvalOverride) {
       return { status: 400, body: { error: "No valid fields to update" } };
     }
 
@@ -627,6 +696,18 @@ export async function routeApi(
 
     if (hasNotes) {
       updated.rawNotes = String(body.rawNotes ?? "");
+    }
+
+    if (hasTranscript) {
+      const transcript = String(body.eventTranscript ?? "").trim();
+      if (transcript) updated.eventTranscript = transcript;
+      else delete updated.eventTranscript;
+    }
+
+    if (hasOrganizedNotes) {
+      const organized = String(body.organizedNotes ?? "").trim();
+      if (organized) updated.organizedNotes = organized;
+      else delete updated.organizedNotes;
     }
 
     if (hasScreenshots) {
@@ -669,6 +750,21 @@ export async function routeApi(
       updated.followUpDrafts = parsedFollowUps;
     }
 
+    if (parsedSelectedThemes !== undefined) {
+      updated.selectedThemeIds = parsedSelectedThemes;
+    }
+
+    if (hasEvalOverride) {
+      if (!session.evalScores) {
+        return { status: 400, body: { error: "Run Review before saving score corrections" } };
+      }
+      const mergedScores = mergeEvalScores(session.evalScores, parsedEvalOverride!);
+      if (!mergedScores) {
+        return { status: 400, body: { error: "Could not apply score corrections" } };
+      }
+      updated.evalScores = mergedScores;
+    }
+
     await saveSession(updated, auth.userId);
     let savedSession = updated;
     if (hasEventUrl) {
@@ -676,7 +772,36 @@ export async function routeApi(
       await saveSession(savedSession, auth.userId);
     }
 
-    const profile = await loadProfileOrExample(auth.userId);
+    let learningsAdded: ProfileLearning[] = [];
+
+    if (hasThinkEdits || hasCreateEdits) {
+      const captured = captureLearningsFromSessionEdit(session, savedSession, {
+        think: hasThinkEdits,
+        create: hasCreateEdits,
+      });
+      if (captured.learnings?.length || captured.pastPostExamples?.length) {
+        const currentProfile = await loadProfileOrExample(auth.userId);
+        const mergedProfile = mergeProfileMemory(currentProfile, captured);
+        await saveProfile(mergedProfile, auth.userId);
+        learningsAdded = [...learningsAdded, ...(captured.learnings ?? [])];
+      }
+    }
+
+    if (hasEvalOverride && session.evalScores && updated.evalScores) {
+      const evalLearnings = captureLearningsFromEvalOverride(
+        session.evalScores,
+        updated.evalScores,
+        savedSession
+      );
+      if (evalLearnings.length) {
+        const currentProfile = await loadProfileOrExample(auth.userId);
+        const mergedProfile = mergeProfileMemory(currentProfile, { learnings: evalLearnings });
+        await saveProfile(mergedProfile, auth.userId);
+        learningsAdded = [...learningsAdded, ...evalLearnings];
+      }
+    }
+
+    const profile = normalizeProfileMemory(await loadProfileOrExample(auth.userId));
     const preview = buildEventPreview(savedSession);
     const intentSuggestions = savedSession.eventEnrichment
       ? buildEventIntentSuggestions(savedSession.eventEnrichment, profile)
@@ -685,11 +810,9 @@ export async function routeApi(
     return {
       status: 200,
       body: {
-        session: {
-          ...savedSession,
-          eventLinkNudge: eventLinkNudge(savedSession),
-          eventLinkInfo: savedSession.eventUrl ? parseEventUrl(savedSession.eventUrl) : null,
-        },
+        session: enrichSessionPayload(savedSession, profile),
+        learningsAdded,
+        profileLearnings: profile.learnings ?? [],
         eventLinkInfo: savedSession.eventUrl ? parseEventUrl(savedSession.eventUrl) : null,
         eventPreview: preview,
         intentSuggestions,
@@ -840,8 +963,51 @@ export async function routeApi(
     }
   }
 
+  const agentContinueMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/agent\/continue$/);
+  if (agentContinueMatch && method === "POST") {
+    const sessionId = agentContinueMatch[1];
+    const session = await resolveSession(sessionId, auth.userId);
+    if (!session || (session.userId && session.userId !== auth.userId)) {
+      return { status: 404, body: { error: "Session not found" } };
+    }
+
+    const body = parseRequestBody(rawBody) as { approve?: string; maxSteps?: number };
+    const approve =
+      body.approve === "extract" ||
+      body.approve === "synthesize" ||
+      body.approve === "draft" ||
+      body.approve === "self-critique"
+        ? (body.approve as RunnableWorkflow)
+        : undefined;
+    const maxSteps =
+      typeof body.maxSteps === "number" && Number.isFinite(body.maxSteps)
+        ? body.maxSteps
+        : undefined;
+
+    try {
+      const result = await continueSession(session, auth.userId, { approve, maxSteps });
+      const profile = await loadProfileOrExample(auth.userId);
+      return {
+        status: 200,
+        body: {
+          session: enrichSessionPayload(result.session, profile),
+          trace: result.trace,
+          plan: result.plan,
+          stoppedForApproval: result.stoppedForApproval,
+          stepsRun: result.stepsRun,
+          xpAwarded: result.xpAwarded,
+          leveledUp: result.leveledUp,
+        },
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Agent continue failed";
+      const status = message.includes("not configured") ? 503 : 400;
+      return { status, body: { error: message } };
+    }
+  }
+
   const workflowMatch = pathname.match(
-    /^\/api\/sessions\/([^/]+)\/workflows\/(extract|synthesize|draft|self-critique)$/
+    /^\/api\/sessions\/([^/]+)\/workflows\/(organize-transcript|extract|synthesize|draft|self-critique)$/
   );
   if (workflowMatch && method === "POST") {
     const [, sessionId, workflowName] = workflowMatch;
@@ -852,18 +1018,17 @@ export async function routeApi(
     }
 
     try {
-      const result = await runSessionWorkflow(workflow, session, auth.userId);
+      const runBody = parseRequestBody(rawBody) as { selectedThemeIds?: string[] };
+      const result = await runSessionWorkflow(workflow, session, auth.userId, {
+        selectedThemeIds: Array.isArray(runBody.selectedThemeIds)
+          ? runBody.selectedThemeIds.map(String).filter(Boolean)
+          : session.selectedThemeIds,
+      });
       const profile = await loadProfileOrExample(auth.userId);
-      const normalizedSession = normalizeSessionClaims(result.session);
       return {
         status: 200,
         body: {
-          session: {
-            ...normalizedSession,
-            eventLinkNudge: eventLinkNudge(normalizedSession),
-            eventLinkInfo: normalizedSession.eventUrl ? parseEventUrl(normalizedSession.eventUrl) : null,
-            connectionDrafts: buildConnectionDrafts(normalizedSession, profile),
-          },
+          session: enrichSessionPayload(result.session, profile),
           xpAwarded: result.xpAwarded,
           leveledUp: result.leveledUp,
         },
@@ -920,15 +1085,9 @@ export async function routeApi(
       return { status: 404, body: { error: "Session not found" } };
     }
     const profile = await loadProfileOrExample(auth.userId);
-    const normalizedSession = normalizeSessionClaims(session);
     return {
       status: 200,
-      body: {
-        ...normalizedSession,
-        eventLinkNudge: eventLinkNudge(normalizedSession),
-        eventLinkInfo: normalizedSession.eventUrl ? parseEventUrl(normalizedSession.eventUrl) : null,
-        connectionDrafts: buildConnectionDrafts(normalizedSession, profile),
-      },
+      body: enrichSessionPayload(session, profile),
     };
   }
 

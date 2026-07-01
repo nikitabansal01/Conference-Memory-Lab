@@ -175,10 +175,14 @@ async function cmdPrompt(workflow: WorkflowName, sessionId: string): Promise<voi
   }
 
   const progress = await loadProgress(CLI_USER_ID);
-  const profile = workflow === "extract" ? null : await loadProfileOrExample(CLI_USER_ID);
+  const profile =
+    workflow === "extract" || workflow === "organize-transcript"
+      ? null
+      : await loadProfileOrExample(CLI_USER_ID);
   const userLevel = progress.level as TrustLevel;
 
   const gate = canPerformAction(userLevel, {
+    "organize-transcript": "run_extract",
     extract: "run_extract",
     synthesize: "run_synthesize",
     draft: "generate_content_drafts",

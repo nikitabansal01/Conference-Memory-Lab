@@ -4,12 +4,14 @@ import { fileURLToPath } from "node:url";
 import type { EventSession, ExpertiseProfile, TrustLevel } from "../models/types.js";
 import { canPerformAction } from "../trust/levels.js";
 import { loadResume } from "./storage.js";
+import { formatLearningsForPrompt } from "./profile-memory.js";
 
 const WORKFLOWS_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "workflows");
 
-export type WorkflowName = "extract" | "synthesize" | "draft" | "self-critique";
+export type WorkflowName = "organize-transcript" | "extract" | "synthesize" | "draft" | "self-critique";
 
 const WORKFLOW_FILES: Record<WorkflowName, string> = {
+  "organize-transcript": "00-organize-transcript.md",
   extract: "01-extract.md",
   synthesize: "02-synthesize.md",
   draft: "03-draft.md",
@@ -17,6 +19,7 @@ const WORKFLOW_FILES: Record<WorkflowName, string> = {
 };
 
 const STAGE_REQUIREMENTS: Record<WorkflowName, { action: string; minStage?: string }> = {
+  "organize-transcript": { action: "run_extract" },
   extract: { action: "run_extract" },
   synthesize: { action: "run_synthesize", minStage: "extracted" },
   draft: { action: "generate_content_drafts", minStage: "synthesized" },
@@ -61,6 +64,8 @@ function formatSessionContext(session: EventSession, workflow: WorkflowName): st
       ? eventPageContext
       : undefined,
     rawNotes: session.rawNotes,
+    eventTranscript: session.eventTranscript,
+    organizedNotes: session.organizedNotes,
     screenshotDescriptions: session.screenshotDescriptions,
     people: session.people,
     interactions: session.interactions,
@@ -73,6 +78,12 @@ function formatSessionContext(session: EventSession, workflow: WorkflowName): st
   if (workflow === "draft" || workflow === "self-critique") {
     payload.contentDrafts = session.contentDrafts;
     payload.followUpDrafts = session.followUpDrafts;
+  }
+  if (workflow === "draft" && session.selectedThemeIds?.length) {
+    payload.selectedThemeIds = session.selectedThemeIds;
+    payload.themes = (session.themes ?? []).filter((t) =>
+      session.selectedThemeIds!.includes(t.id)
+    );
   }
   if (workflow === "self-critique") {
     payload.evalScores = session.evalScores;
@@ -96,7 +107,7 @@ export async function buildWorkflowPrompt(
     );
   }
 
-  if (workflow !== "extract" && !profile) {
+  if (workflow !== "extract" && workflow !== "organize-transcript" && !profile) {
     throw new Error(
       "Profile required. Copy profile/profile.example.json to profile/profile.json and customize."
     );
@@ -114,11 +125,20 @@ export async function buildWorkflowPrompt(
 
   const draftFocus =
     workflow === "draft"
-      ? "\n## Create focus\nUse `themes[]` from synthesis as the primary input. Return at least one LinkedIn `contentDraft` per theme (max 3). Write from theme labels, profileConnection, and claims — do not imitate `pastPostExamples`.\n"
+      ? "\n## Create focus\n" +
+        "Match the user's voice using `pastPostExamples`, `voiceTraits`, and `avoidPatterns` in the expertise profile. " +
+        "If `selectedThemeIds` is set, only draft for those themes. " +
+        "If exactly 1 theme is selected, return 2 distinct LinkedIn drafts (different hooks). " +
+        "If 2+ themes are selected, return 1 draft per theme.\n"
       : "";
   const reviewFocus =
     workflow === "self-critique"
       ? "\n## Review focus\nReturn `evalScores` with an integer **1–5 score** and a one-sentence justification per dimension. Use the full scale — reserve 5 for excellent drafts and 1–2 for serious issues.\n"
+      : "";
+
+  const learningsBlock =
+    profile && (workflow === "synthesize" || workflow === "draft" || workflow === "self-critique")
+      ? formatLearningsForPrompt(profile)
       : "";
 
   const userContext = [
@@ -127,6 +147,7 @@ export async function buildWorkflowPrompt(
     draftFocus,
     reviewFocus,
     profile ? "\n## Expertise profile\n" + formatProfile(profile) : "",
+    learningsBlock ? "\n" + learningsBlock : "",
     resume && workflow !== "draft" ? "\n## Resume (professional context)\n" + resume : "",
     rubric ? "\n## Eval rubrics\n" + rubric : "",
   ].join("\n");
