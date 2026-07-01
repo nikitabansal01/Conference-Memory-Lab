@@ -358,6 +358,10 @@ export async function routeApi(
   rawBody?: unknown,
   auth?: RequestAuth
 ): Promise<ApiResult> {
+  if (pathname === "/api/health" && method === "GET") {
+    return { status: 200, body: { ok: true, service: "conference-memory-lab" } };
+  }
+
   if (pathname === "/api/config" && method === "GET") {
     return {
       status: 200,

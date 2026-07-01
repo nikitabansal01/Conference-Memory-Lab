@@ -1,6 +1,6 @@
 {
   "functions": {
-    "api/**/*.ts": {
+    "api/[[...path]].ts": {
       "includeFiles": "{src,profile,prompts,examples,workflows,eval}/**"
     }
   },
