@@ -159,57 +159,7 @@ const WALKTHROUGH_COMPANION = {
   },
 };
 
-const LENS_IMPORT_PROMPT = `I use you to brainstorm projects, explore new topics, and work through ideas — and I have memory on, so you already know a lot about me from our past conversations.
-
-I'm setting up Conference Memory Lab, an app that turns networking events (mixers, panels, conferences, webinars) into grounded memory and content filtered through my unique lens — not generic event recaps.
-
-Please synthesize everything you know about me from our conversation history and memory into a profile I can paste into the app. Focus on:
-
-1. Who I am professionally — role, background, one-line expertise
-2. What I'm actively learning — topics I'm going deeper on right now
-3. Ongoing projects & content areas — work, side projects, or themes I want event insights to feed
-4. My voice & thinking style — how I write, what I avoid, questions I naturally ask
-
-Rules:
-- Use ONLY what you can infer from our history and memory. Do not invent facts.
-- Where uncertain, write "[uncertain]" or leave a field blank with a note.
-- If context is thin, say what's missing and ask 2–3 quick questions instead of guessing.
-- Prioritize projects and learning areas I've mentioned recently or repeatedly.
-
-Respond in EXACTLY this format (keep the ## headers — I will copy each section into the app):
-
-## Name
-[how I usually go by]
-
-## Tagline
-[one line on what I bring — the intersection of my expertise]
-
-## Current role
-[title and context if known]
-
-## Education
-[degree/school if known, or "Not in our history"]
-
-## Learning goals & expertise
-[one topic per line — e.g. LLM evals, healthcare AI, UI/UX]
-
-## Ongoing projects
-[one project or content area per line — where I apply event learnings]
-
-## Voice & how I think
-[one trait per line — e.g. curious but grounded, names tradeoffs not hype]
-
-## What to avoid in my writing
-[one pattern per line — e.g. emoji, generic AI hype, restating slides]
-
-## Questions I naturally ask
-[one per line — sharp questions I'd ask at a panel or about an idea]
-
-## Past writing samples
-[LinkedIn posts, drafts, or writing examples from our chats — or "None in our history"]
-
-## Confidence note
-[1–2 sentences: what you're confident about vs what I should fill in manually]`;
+let lensImportPromptCache = null;
 
 let walkthroughStep = 0;
 let walkthroughLoopSub = 0;
@@ -2289,6 +2239,13 @@ function setLensImportStatus(message, isError = false) {
   el.classList.toggle("is-error", Boolean(isError));
 }
 
+async function getLensImportPrompt() {
+  if (lensImportPromptCache) return lensImportPromptCache;
+  const data = await fetchJson("/api/profile/lens-import-prompt");
+  lensImportPromptCache = data.prompt;
+  return lensImportPromptCache;
+}
+
 async function openSession(id, tab = "think") {
   try {
     activeTab = tab;
@@ -4174,8 +4131,10 @@ document.getElementById("btn-cancel-lens").addEventListener("click", () => {
 
 document.getElementById("btn-copy-lens-prompt")?.addEventListener("click", async () => {
   const btn = document.getElementById("btn-copy-lens-prompt");
+  if (btn) btn.disabled = true;
   try {
-    await navigator.clipboard.writeText(LENS_IMPORT_PROMPT);
+    const prompt = await getLensImportPrompt();
+    await navigator.clipboard.writeText(prompt);
     if (btn) {
       const prev = btn.textContent;
       btn.textContent = "Copied!";
@@ -4185,7 +4144,9 @@ document.getElementById("btn-copy-lens-prompt")?.addEventListener("click", async
     }
     setLensImportStatus("Prompt copied — paste it in ChatGPT or Claude, then paste the response below.");
   } catch {
-    setLensImportStatus("Could not copy — select and copy manually from the examples doc.", true);
+    setLensImportStatus("Could not load or copy the prompt. Try again.", true);
+  } finally {
+    if (btn) btn.disabled = false;
   }
 });
 

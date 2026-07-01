@@ -53,6 +53,7 @@ npm run dev
 
 ```
 profile/          Your Lens — expertise, voice, resume
+prompts/          User copy-paste prompts (lens import from ChatGPT/Claude)
 workflows/        Agent prompts (Remember → Think → Create)
 eval/rubrics/     Review scorecard
 src/              Models, trust, CLI, local server

@@ -44,6 +44,7 @@ import type { RequestAuth } from "../lib/auth.js";
 import { getClerkPublishableKey, isAuthConfigured, getClerkSetupStatus, isLocalDevAuthBypass } from "../lib/auth.js";
 import { isLlmConfigured } from "../lib/llm.js";
 import { runSessionWorkflow, type RunnableWorkflow } from "../lib/run-workflow.js";
+import { loadLensImportPrompt } from "../lib/lens-import-prompt.js";
 
 const EVENT_TYPES: EventType[] = ["mixer", "panel", "conference", "webinar", "other"];
 
@@ -368,6 +369,11 @@ export async function routeApi(
         llmConfigured: isLlmConfigured(),
       },
     };
+  }
+
+  if (pathname === "/api/profile/lens-import-prompt" && method === "GET") {
+    const prompt = await loadLensImportPrompt();
+    return { status: 200, body: { prompt } };
   }
 
   if (!auth) {
