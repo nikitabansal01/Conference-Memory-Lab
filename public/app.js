@@ -679,6 +679,7 @@ function renderSidebarEvents(d) {
 
   listEl.querySelectorAll("[data-open-event]").forEach((btn) => {
     btn.addEventListener("click", () => {
+      closeMobileMenu();
       returnView = "events";
       openSession(btn.dataset.openEvent, btn.dataset.eventTab);
     });
@@ -4072,6 +4073,10 @@ function toggleMobileMenu() {
 }
 
 document.getElementById("sidebar-toggle").addEventListener("click", toggleMobileMenu);
+
+window.addEventListener("resize", () => {
+  if (window.innerWidth > 800) closeMobileMenu();
+});
 
 document.querySelectorAll(".sidebar-nav .nav-item, .sidebar-foot .nav-item").forEach((btn) => {
   btn.addEventListener("click", () => {
