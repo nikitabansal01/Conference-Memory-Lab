@@ -4832,7 +4832,7 @@ textarea.flow-row-detail::placeholder {
   left: 50%;
   bottom: 28px;
   transform: translateX(-50%);
-  width: min(520px, calc(100vw - 32px));
+  width: min(520px, calc(100% - 32px));
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 18px;
@@ -5070,12 +5070,24 @@ textarea.flow-row-detail::placeholder {
 }
 
 @media (max-width: 800px) {
+  :root {
+    --mobile-gutter: 16px;
+  }
+
   html {
     -webkit-text-size-adjust: 100%;
   }
 
   body {
-    overflow-x: hidden;
+    max-width: 100%;
+  }
+
+  #app-shell {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    padding-inline: var(--mobile-gutter);
+    overflow-x: clip;
   }
 
   .event-loop-track,
@@ -5085,6 +5097,7 @@ textarea.flow-row-detail::placeholder {
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
     padding-bottom: 4px;
+    max-width: 100%;
   }
 
   .event-loop-track::-webkit-scrollbar,
@@ -5098,10 +5111,22 @@ textarea.flow-row-detail::placeholder {
     flex-shrink: 0;
   }
 
-  .app-layout { flex-direction: column; }
+  .app-layout {
+    flex-direction: column;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .main-area {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
 
   .sidebar {
-    width: 100%;
+    width: auto;
+    margin-inline: calc(-1 * var(--mobile-gutter));
     height: auto;
     position: sticky;
     top: 0;
@@ -5110,8 +5135,10 @@ textarea.flow-row-detail::placeholder {
     flex-wrap: nowrap;
     padding: 0;
     padding-top: env(safe-area-inset-top, 0);
+    padding-inline: var(--mobile-gutter);
     border-right: none;
     border-bottom: 1px solid var(--line);
+    box-sizing: border-box;
   }
 
   .sidebar.menu-open {
@@ -5125,7 +5152,7 @@ textarea.flow-row-detail::placeholder {
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 12px 16px;
+    padding: 12px 0;
   }
 
   .sidebar-brand {
@@ -5179,7 +5206,7 @@ textarea.flow-row-detail::placeholder {
     display: none;
     flex-direction: column;
     gap: 2px;
-    padding: 0 12px 12px;
+    padding: 0 0 12px;
     width: 100%;
     order: unset;
   }
@@ -5194,7 +5221,7 @@ textarea.flow-row-detail::placeholder {
 
   .sidebar.menu-open .sidebar-foot {
     display: flex;
-    padding: 0 12px 12px;
+    padding: 0 0 12px;
     border-top: none;
     padding-bottom: calc(12px + env(safe-area-inset-bottom, 0));
   }
@@ -5211,17 +5238,22 @@ textarea.flow-row-detail::placeholder {
   .dashboard,
   .hub-view,
   .events-view {
-    padding: 8px 16px 48px;
+    padding: 8px 0 48px;
+    max-width: 100%;
+    box-sizing: border-box;
   }
 
   .session-view {
-    padding: 12px 16px calc(64px + env(safe-area-inset-bottom, 0));
+    padding: 12px 0 calc(64px + env(safe-area-inset-bottom, 0));
+    max-width: 100%;
+    box-sizing: border-box;
   }
 
   .main-topbar {
-    padding: 12px 16px 0;
+    padding: 12px 0 0;
     flex-wrap: wrap;
     gap: 8px;
+    max-width: 100%;
   }
 
   .topbar-spacer { display: none; }
@@ -5239,10 +5271,9 @@ textarea.flow-row-detail::placeholder {
   }
 
   .loop-action-panel {
-    margin-left: -16px;
-    margin-right: -16px;
-    margin-bottom: -16px;
-    padding: 20px 16px 24px;
+    margin-inline: 0;
+    margin-bottom: 0;
+    padding: 20px 0 8px;
   }
 
   .hero {
@@ -5283,12 +5314,13 @@ textarea.flow-row-detail::placeholder {
   }
 
   .action-body {
-    flex: 1 1 calc(100% - 130px);
+    flex: 1 1 100%;
     min-width: 0;
   }
 
   .status-chip {
-    margin-left: auto;
+    margin-left: 0;
+    flex-shrink: 0;
   }
 
   .event-nav-card {
@@ -5352,7 +5384,36 @@ textarea.flow-row-detail::placeholder {
   }
 
   .timeline-track {
-    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+    padding-bottom: 4px;
+    max-width: 100%;
+  }
+
+  .timeline-track::-webkit-scrollbar {
+    display: none;
+  }
+
+  .timeline-card {
+    flex: 0 0 min(240px, 82%);
+    scroll-snap-align: start;
+  }
+
+  .timeline-card-add {
+    flex: 0 0 min(180px, 70%);
+  }
+
+  .dashboard-grid,
+  .dashboard-main,
+  .dashboard-rail,
+  .card,
+  .bottom-banner {
+    max-width: 100%;
+    box-sizing: border-box;
   }
 
   .bottom-banner {
@@ -5411,10 +5472,11 @@ textarea.flow-row-detail::placeholder {
   }
 
   .session-quest-bar {
-    margin-left: -16px;
-    margin-right: -16px;
-    width: calc(100% + 32px);
-    border-radius: var(--radius) var(--radius) 0 0;
+    margin-inline: 0;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    border-radius: var(--radius);
     padding: 14px 16px calc(14px + env(safe-area-inset-bottom, 0));
   }
 
@@ -5464,9 +5526,14 @@ textarea.flow-row-detail::placeholder {
   }
 
   .walkthrough-panel {
+    left: var(--mobile-gutter);
+    right: var(--mobile-gutter);
     bottom: calc(16px + env(safe-area-inset-bottom, 0));
-    width: calc(100vw - 24px);
+    width: auto;
+    max-width: none;
+    transform: none;
     padding: 16px 18px 14px;
+    box-sizing: border-box;
   }
 
   .walkthrough-actions {
@@ -5512,18 +5579,8 @@ textarea.flow-row-detail::placeholder {
 }
 
 @media (max-width: 480px) {
-  .dashboard,
-  .hub-view,
-  .events-view,
-  .session-view {
-    padding-left: 12px;
-    padding-right: 12px;
-  }
-
   .main-topbar {
     flex-direction: column;
-    padding-left: 12px;
-    padding-right: 12px;
   }
 
   .main-topbar .btn {
@@ -5612,12 +5669,6 @@ textarea.flow-row-detail::placeholder {
 
   .flow-notes {
     min-height: 140px;
-  }
-
-  .session-quest-bar {
-    margin-left: -12px;
-    margin-right: -12px;
-    width: calc(100% + 24px);
   }
 }
 
