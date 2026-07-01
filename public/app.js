@@ -139,7 +139,7 @@ const WALKTHROUGH_COMPANION = {
     modalId: "modal-lens",
     title: "Set up your Unique Lens",
     body:
-      "Add learning goals and projects you're applying insights to. Save when you're ready — we'll move to the next tour step.",
+      "Already brainstorming in ChatGPT or Claude? Copy the import prompt, paste it there, then apply the response here. Or fill in learning goals and projects manually — Save when ready.",
   },
   event: {
     modalId: "modal-event",
@@ -158,6 +158,58 @@ const WALKTHROUGH_COMPANION = {
     body: "These apps unlock as you review drafts. Close when you've seen the layout — the tour continues.",
   },
 };
+
+const LENS_IMPORT_PROMPT = `I use you to brainstorm projects, explore new topics, and work through ideas — and I have memory on, so you already know a lot about me from our past conversations.
+
+I'm setting up Conference Memory Lab, an app that turns networking events (mixers, panels, conferences, webinars) into grounded memory and content filtered through my unique lens — not generic event recaps.
+
+Please synthesize everything you know about me from our conversation history and memory into a profile I can paste into the app. Focus on:
+
+1. Who I am professionally — role, background, one-line expertise
+2. What I'm actively learning — topics I'm going deeper on right now
+3. Ongoing projects & content areas — work, side projects, or themes I want event insights to feed
+4. My voice & thinking style — how I write, what I avoid, questions I naturally ask
+
+Rules:
+- Use ONLY what you can infer from our history and memory. Do not invent facts.
+- Where uncertain, write "[uncertain]" or leave a field blank with a note.
+- If context is thin, say what's missing and ask 2–3 quick questions instead of guessing.
+- Prioritize projects and learning areas I've mentioned recently or repeatedly.
+
+Respond in EXACTLY this format (keep the ## headers — I will copy each section into the app):
+
+## Name
+[how I usually go by]
+
+## Tagline
+[one line on what I bring — the intersection of my expertise]
+
+## Current role
+[title and context if known]
+
+## Education
+[degree/school if known, or "Not in our history"]
+
+## Learning goals & expertise
+[one topic per line — e.g. LLM evals, healthcare AI, UI/UX]
+
+## Ongoing projects
+[one project or content area per line — where I apply event learnings]
+
+## Voice & how I think
+[one trait per line — e.g. curious but grounded, names tradeoffs not hype]
+
+## What to avoid in my writing
+[one pattern per line — e.g. emoji, generic AI hype, restating slides]
+
+## Questions I naturally ask
+[one per line — sharp questions I'd ask at a panel or about an idea]
+
+## Past writing samples
+[LinkedIn posts, drafts, or writing examples from our chats — or "None in our history"]
+
+## Confidence note
+[1–2 sentences: what you're confident about vs what I should fill in manually]`;
 
 let walkthroughStep = 0;
 let walkthroughLoopSub = 0;
@@ -2057,6 +2109,8 @@ async function openLensModal() {
   form.contentPriorities.value = arrayToLines(profile.contentPriorities);
   form.pastPostExamples.value = arrayToLines(profile.pastPostExamples);
   document.getElementById("lens-error").classList.add("hidden");
+  document.getElementById("lens-import-text").value = "";
+  setLensImportStatus("");
   document.getElementById("modal-lens").showModal();
   if (walkthroughActive && walkthroughStep === 0) {
     enterWalkthroughCompanion("lens");
@@ -2161,7 +2215,78 @@ function arrayToLines(arr) {
 }
 
 function linesToArray(text) {
-  return String(text).split("\n").map((s) => s.trim()).filter(Boolean);
+  return String(text ?? "")
+    .split("\n")
+    .map((s) => s.replace(/^[-*•]\s*/, "").trim())
+    .filter(Boolean);
+}
+
+function parseLensImportSections(text) {
+  const sections = {};
+  const chunks = String(text ?? "").split(/^## /m);
+  for (const chunk of chunks) {
+    const trimmed = chunk.trim();
+    if (!trimmed) continue;
+    const nl = trimmed.indexOf("\n");
+    const title = (nl === -1 ? trimmed : trimmed.slice(0, nl)).trim().toLowerCase();
+    const body = (nl === -1 ? "" : trimmed.slice(nl + 1)).trim();
+    if (title) sections[title] = body;
+  }
+  return sections;
+}
+
+function importListField(raw) {
+  if (!raw) return [];
+  const skip = /^(not in our history|none in our history|\[uncertain\])$/i;
+  return linesToArray(raw).filter((line) => !skip.test(line));
+}
+
+function importScalarField(raw) {
+  if (!raw) return "";
+  const trimmed = raw.trim();
+  if (/^(not in our history|\[uncertain\])$/i.test(trimmed)) return "";
+  return trimmed.replace(/^\[|\]$/g, "").trim();
+}
+
+function applyLensImportToForm(text) {
+  const sections = parseLensImportSections(text);
+  if (!Object.keys(sections).length) {
+    return { ok: false, error: "No ## sections found. Paste the full formatted response from ChatGPT or Claude." };
+  }
+
+  const form = document.getElementById("form-lens");
+  const mapping = [
+    ["name", sections.name, "scalar"],
+    ["tagline", sections.tagline, "scalar"],
+    ["currentRole", sections["current role"], "scalar"],
+    ["education", sections.education, "scalar"],
+    ["expertiseAreas", importListField(sections["learning goals & expertise"]).join("\n"), "list"],
+    ["contentPriorities", importListField(sections["ongoing projects"]).join("\n"), "list"],
+    ["pastPostExamples", importListField(sections["past writing samples"]).join("\n\n"), "list"],
+  ];
+
+  let applied = 0;
+  for (const [field, value, kind] of mapping) {
+    const el = form.elements[field];
+    if (!el) continue;
+    const next = kind === "scalar" ? importScalarField(value) : value;
+    if (!next) continue;
+    el.value = next;
+    applied += 1;
+  }
+
+  if (!applied) {
+    return { ok: false, error: "Couldn't map any fields. Check that the response uses the ## headers from the import prompt." };
+  }
+  return { ok: true, applied };
+}
+
+function setLensImportStatus(message, isError = false) {
+  const el = document.getElementById("lens-import-status");
+  if (!el) return;
+  el.textContent = message;
+  el.classList.toggle("hidden", !message);
+  el.classList.toggle("is-error", Boolean(isError));
 }
 
 async function openSession(id, tab = "think") {
@@ -4046,6 +4171,34 @@ document.getElementById("btn-cancel-event").addEventListener("click", () => {
 document.getElementById("btn-cancel-lens").addEventListener("click", () => {
   document.getElementById("modal-lens").close();
 });
+
+document.getElementById("btn-copy-lens-prompt")?.addEventListener("click", async () => {
+  const btn = document.getElementById("btn-copy-lens-prompt");
+  try {
+    await navigator.clipboard.writeText(LENS_IMPORT_PROMPT);
+    if (btn) {
+      const prev = btn.textContent;
+      btn.textContent = "Copied!";
+      setTimeout(() => {
+        btn.textContent = prev;
+      }, 2000);
+    }
+    setLensImportStatus("Prompt copied — paste it in ChatGPT or Claude, then paste the response below.");
+  } catch {
+    setLensImportStatus("Could not copy — select and copy manually from the examples doc.", true);
+  }
+});
+
+document.getElementById("btn-apply-lens-import")?.addEventListener("click", () => {
+  const text = document.getElementById("lens-import-text")?.value ?? "";
+  const result = applyLensImportToForm(text);
+  if (!result.ok) {
+    setLensImportStatus(result.error, true);
+    return;
+  }
+  setLensImportStatus(`Applied ${result.applied} field${result.applied === 1 ? "" : "s"}. Review and edit, then Save lens.`);
+});
+
 document.getElementById("btn-close-connections").addEventListener("click", () => document.getElementById("modal-connections").close());
 document.getElementById("btn-cancel-link").addEventListener("click", () => document.getElementById("modal-link").close());
 document.getElementById("btn-back").addEventListener("click", () => {

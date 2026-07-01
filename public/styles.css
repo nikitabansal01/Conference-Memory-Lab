@@ -4619,6 +4619,37 @@ textarea.flow-row-detail::placeholder {
   line-height: 1.55;
 }
 
+.lens-import-panel {
+  margin: 0 0 20px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: var(--surface-2, #f5f5f4);
+  border: 1px solid var(--border, #e7e5e4);
+}
+
+.lens-import-title {
+  margin: 0 0 4px;
+  font-size: 1rem;
+}
+
+.lens-import-actions {
+  margin: 10px 0 12px;
+}
+
+.lens-import-paste {
+  margin-bottom: 8px;
+}
+
+.lens-import-status {
+  margin: 8px 0 0;
+  font-size: 0.85rem;
+  color: var(--accent, #b45309);
+}
+
+.lens-import-status.is-error {
+  color: #b91c1c;
+}
+
 .lens-incomplete { color: var(--muted); margin: 0 0 12px; }
 .lens-progress {
   height: 6px;

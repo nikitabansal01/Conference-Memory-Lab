@@ -188,6 +188,19 @@
           <h2>Your Unique Lens</h2>
           <p class="section-hint">Learning goals, projects you apply insights to, and how the thought partner understands your voice</p>
         </header>
+        <section class="lens-import-panel" id="lens-import-panel">
+          <h3 class="lens-import-title">Import from ChatGPT or Claude</h3>
+          <p class="field-hint">If you already brainstorm projects there with memory on, copy this prompt, paste it in your chat, then paste the response below.</p>
+          <div class="lens-import-actions">
+            <button type="button" class="btn btn-secondary btn-compact" id="btn-copy-lens-prompt">Copy import prompt</button>
+          </div>
+          <label class="field lens-import-paste">
+            <span>Paste response here</span>
+            <textarea id="lens-import-text" rows="4" placeholder="Paste the ## Name / ## Tagline / … response from your chatbot"></textarea>
+          </label>
+          <button type="button" class="btn btn-text btn-compact" id="btn-apply-lens-import">Apply to form</button>
+          <p id="lens-import-status" class="lens-import-status hidden" aria-live="polite"></p>
+        </section>
         <label class="field">
           <span>Name</span>
           <input type="text" name="name" required />
