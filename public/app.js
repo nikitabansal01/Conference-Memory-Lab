@@ -142,6 +142,68 @@ const WALKTHROUGH_STEPS = [
   },
 ];
 
+const WALKTHROUGH_WELCOME = {
+  title: "Welcome to Conference Memory Lab",
+  body: "Turn networking events into grounded memory and posts filtered through your unique lens.",
+  primaryLabel: "Start tour",
+};
+
+const WALKTHROUGH_DONE = {
+  title: "You're ready",
+  body: "Pick where to start — both paths work for a new workspace.",
+};
+
+const MOBILE_TOUR_MAX_WIDTH = 800;
+
+function isMobileTour() {
+  return window.innerWidth <= MOBILE_TOUR_MAX_WIDTH;
+}
+
+function walkthroughWelcomeTitle() {
+  const name = dashboardData?.profile?.name;
+  const first = name && name !== "You" ? name.split(" ")[0] : null;
+  return first ? `Welcome, ${first}` : WALKTHROUGH_WELCOME.title;
+}
+
+function lockWalkthroughScroll() {
+  if (!isMobileTour()) return;
+  document.body.classList.add("walkthrough-scroll-lock");
+}
+
+function unlockWalkthroughScroll() {
+  document.body.classList.remove("walkthrough-scroll-lock");
+}
+
+function resetWalkthroughPanelPosition(panel) {
+  if (!panel) return;
+  panel.classList.remove("is-docked");
+  panel.style.left = "";
+  panel.style.top = "";
+  panel.style.bottom = "";
+  panel.style.transform = "";
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function ensureWalkthroughTargetAccessible(step) {
+  if (!step || !isMobileTour()) return;
+  if (step.target?.includes("connections")) {
+    const sidebar = document.getElementById("sidebar");
+    if (sidebar && !sidebar.classList.contains("menu-open")) {
+      toggleMobileMenu();
+      await delay(220);
+    }
+  }
+}
+
+async function scrollWalkthroughTargetIntoView(target) {
+  if (!target || !isMobileTour()) return;
+  target.scrollIntoView({ block: "center", behavior: "smooth" });
+  await delay(360);
+}
+
 const WALKTHROUGH_COMPANION = {
   lens: {
     modalId: "modal-lens",
@@ -193,11 +255,20 @@ let walkthroughStep = 0;
 let walkthroughLoopSub = 0;
 let walkthroughActive = false;
 let walkthroughPaused = false;
+let walkthroughWelcomeActive = false;
+let walkthroughDoneActive = false;
 let walkthroughCompanionMode = null;
 let walkthroughTransitioning = false;
 let walkthroughTargetEl = null;
 let clerkInstance = null;
 let appConfig = null;
+let appBootstrapped = false;
+
+function getActiveMainView() {
+  if (!document.getElementById("view-session")?.classList.contains("hidden")) return "session";
+  if (!document.getElementById("view-hub")?.classList.contains("hidden")) return "hub";
+  return "home";
+}
 
 async function getAuthHeaders(extraHeaders = {}) {
   const headers = { ...extraHeaders };
@@ -310,18 +381,25 @@ function bindClerkSignedInListener() {
   clerkInstance.__signedInListenerBound = true;
   clerkInstance.addListener(({ user }) => {
     if (user) {
-      onSignedIn().catch((err) => handleBootError(err, { authFailure: true }));
+      if (!appBootstrapped) {
+        onSignedIn().catch((err) => handleBootError(err, { authFailure: true }));
+      }
+      return;
     }
+    appBootstrapped = false;
   });
 }
 
 async function onSignedIn() {
+  if (appBootstrapped) return;
+  appBootstrapped = true;
   window.history.replaceState(null, "", "/");
   hideAuthGate();
   await startApp();
 }
 
 async function signOut() {
+  appBootstrapped = false;
   if (clerkInstance?.signOut) {
     await clerkInstance.signOut({ redirectUrl: window.location.origin });
     return;
@@ -377,6 +455,7 @@ function mountClerkAuthForms() {
 }
 
 async function startApp() {
+  appBootstrapped = true;
   await loadDashboard();
   if (wantsTour()) {
     maybeStartWalkthrough(dashboardData, true);
@@ -568,14 +647,18 @@ async function fetchJson(url, options = {}) {
   return data;
 }
 
-async function loadDashboard() {
-  let apiError = null;
+async function fetchDashboardData() {
   try {
     dashboardData = await fetchJson("/api/dashboard");
+    return null;
   } catch (err) {
-    apiError = err instanceof Error ? err.message : "Could not reach the server";
     dashboardData = buildFallbackDashboardData();
+    return err instanceof Error ? err.message : "Could not reach the server";
   }
+}
+
+async function loadDashboard() {
+  const apiError = await fetchDashboardData();
   renderHome();
   if (apiError && !wantsTour()) {
     showDashboardWarning(apiError);
@@ -1580,7 +1663,7 @@ async function openEventOutcomeModal(preview, sessionId, session, intentSuggesti
         };
         renderSessionView();
       }
-      await loadDashboard();
+      await ensureDashboardData();
     }
   } catch {
     updateEventOutcomeModal(initial, intentSuggestions);
@@ -1870,10 +1953,25 @@ function clearWalkthroughHighlight() {
 }
 
 function repositionWalkthroughHighlight() {
+  return repositionWalkthroughHighlightAsync();
+}
+
+async function repositionWalkthroughHighlightAsync() {
   if (!walkthroughActive || walkthroughPaused) return;
 
+  const root = document.getElementById("walkthrough");
+  const panel = document.querySelector(".walkthrough-panel");
+  const highlight = document.getElementById("walkthrough-highlight");
+  root?.classList.toggle("is-mobile-tour", isMobileTour());
+
+  if (walkthroughWelcomeActive || walkthroughDoneActive) {
+    clearWalkthroughHighlight();
+    resetWalkthroughPanelPosition(panel);
+    return;
+  }
+
   const step = WALKTHROUGH_STEPS[walkthroughStep];
-  if (!step) return;
+  if (!step || !highlight || !panel) return;
 
   let selector = step.target;
   if (step.isLoop) {
@@ -1881,21 +1979,28 @@ function repositionWalkthroughHighlight() {
     selector = hasLoopTarget ? step.target : step.fallbackTarget;
   }
 
+  await ensureWalkthroughTargetAccessible(step);
+
   const target = selector ? document.querySelector(selector) : null;
-  const highlight = document.getElementById("walkthrough-highlight");
-  const panel = document.querySelector(".walkthrough-panel");
-  if (!highlight || !panel) return;
 
   clearWalkthroughHighlight();
 
   if (!target) {
     highlight.setAttribute("hidden", "");
-    panel.classList.remove("is-docked");
-    panel.style.left = "";
-    panel.style.top = "";
-    panel.style.bottom = "28px";
-    panel.style.transform = "translateX(-50%)";
+    if (isMobileTour()) {
+      resetWalkthroughPanelPosition(panel);
+    } else {
+      panel.classList.remove("is-docked");
+      panel.style.left = "";
+      panel.style.top = "";
+      panel.style.bottom = "28px";
+      panel.style.transform = "translateX(-50%)";
+    }
     return;
+  }
+
+  if (isMobileTour()) {
+    await scrollWalkthroughTargetIntoView(target);
   }
 
   walkthroughTargetEl = target;
@@ -1908,6 +2013,11 @@ function repositionWalkthroughHighlight() {
   highlight.style.left = `${Math.max(8, rect.left - pad)}px`;
   highlight.style.width = `${Math.min(window.innerWidth - 16, rect.width + pad * 2)}px`;
   highlight.style.height = `${Math.min(window.innerHeight - 16, rect.height + pad * 2)}px`;
+
+  if (isMobileTour()) {
+    resetWalkthroughPanelPosition(panel);
+    return;
+  }
 
   const panelRect = panel.getBoundingClientRect();
   const spaceBelow = window.innerHeight - rect.bottom;
@@ -1972,6 +2082,51 @@ function renderWalkthroughDots() {
 }
 
 function renderWalkthroughPanel() {
+  const root = document.getElementById("walkthrough");
+  const primary = document.getElementById("walkthrough-primary");
+  const secondary = document.getElementById("walkthrough-secondary");
+  const standardActions = document.querySelector(".walkthrough-actions");
+  const doneActions = document.getElementById("walkthrough-done-actions");
+  const dots = document.getElementById("walkthrough-dots");
+  const capacityList = document.getElementById("walkthrough-capacity-list");
+  const loopEl = document.getElementById("walkthrough-loop");
+
+  root?.classList.toggle("is-mobile-tour", isMobileTour());
+  root?.classList.toggle("is-welcome", walkthroughWelcomeActive);
+  root?.classList.toggle("is-done", walkthroughDoneActive);
+
+  if (walkthroughWelcomeActive) {
+    document.getElementById("walkthrough-kicker").textContent = "Welcome";
+    document.getElementById("walkthrough-title").textContent = walkthroughWelcomeTitle();
+    document.getElementById("walkthrough-body").textContent = WALKTHROUGH_WELCOME.body;
+    capacityList?.classList.add("hidden");
+    loopEl?.classList.add("hidden");
+    doneActions?.classList.add("hidden");
+    standardActions?.classList.remove("hidden");
+    dots?.classList.add("hidden");
+    primary.textContent = WALKTHROUGH_WELCOME.primaryLabel;
+    secondary.classList.add("hidden");
+    void repositionWalkthroughHighlightAsync();
+    return;
+  }
+
+  if (walkthroughDoneActive) {
+    document.getElementById("walkthrough-kicker").textContent = "Tour complete";
+    document.getElementById("walkthrough-title").textContent = WALKTHROUGH_DONE.title;
+    document.getElementById("walkthrough-body").textContent = WALKTHROUGH_DONE.body;
+    capacityList?.classList.add("hidden");
+    loopEl?.classList.add("hidden");
+    doneActions?.classList.remove("hidden");
+    standardActions?.classList.add("hidden");
+    dots?.classList.add("hidden");
+    void repositionWalkthroughHighlightAsync();
+    return;
+  }
+
+  doneActions?.classList.add("hidden");
+  standardActions?.classList.remove("hidden");
+  dots?.classList.remove("hidden");
+
   const step = WALKTHROUGH_STEPS[walkthroughStep];
   if (!step) return;
 
@@ -1984,14 +2139,11 @@ function renderWalkthroughPanel() {
   document.getElementById("walkthrough-title").textContent = loopMeta?.title ?? step.title;
   document.getElementById("walkthrough-body").textContent = loopMeta?.body ?? step.body;
 
-  document.getElementById("walkthrough-capacity-list").classList.toggle("hidden", !step.showCapacityList);
-  document.getElementById("walkthrough-loop").classList.toggle("hidden", !step.isLoop);
+  capacityList?.classList.toggle("hidden", !step.showCapacityList);
+  loopEl?.classList.toggle("hidden", !step.isLoop);
 
   if (step.showCapacityList) renderWalkthroughCapacityList();
   if (step.isLoop) renderWalkthroughLoopPreview();
-
-  const primary = document.getElementById("walkthrough-primary");
-  const secondary = document.getElementById("walkthrough-secondary");
 
   if (step.isLoop) {
     primary.textContent = walkthroughLoopSub >= LOOP_WALKTHROUGH.length - 1 ? "Next section" : "Next step";
@@ -2007,7 +2159,7 @@ function renderWalkthroughPanel() {
   }
 
   renderWalkthroughDots();
-  requestAnimationFrame(() => repositionWalkthroughHighlight());
+  void repositionWalkthroughHighlightAsync();
 }
 
 function showWalkthroughOverlay() {
@@ -2016,6 +2168,16 @@ function showWalkthroughOverlay() {
   root.setAttribute("aria-hidden", "false");
   walkthroughActive = true;
   walkthroughPaused = false;
+  walkthroughDoneActive = false;
+  if (
+    isMobileTour() &&
+    walkthroughStep === 0 &&
+    walkthroughLoopSub === 0 &&
+    !walkthroughWelcomeActive
+  ) {
+    walkthroughWelcomeActive = true;
+  }
+  lockWalkthroughScroll();
   renderWalkthroughPanel();
 }
 
@@ -2023,12 +2185,45 @@ function hideWalkthroughOverlay() {
   const root = document.getElementById("walkthrough");
   root.classList.add("hidden");
   root.setAttribute("aria-hidden", "true");
+  root.classList.remove("is-mobile-tour", "is-welcome", "is-done");
   walkthroughActive = false;
   walkthroughPaused = false;
+  walkthroughWelcomeActive = false;
+  walkthroughDoneActive = false;
+  unlockWalkthroughScroll();
   clearWalkthroughHighlight();
+  document.getElementById("walkthrough-done-actions")?.classList.add("hidden");
+  document.querySelector(".walkthrough-actions")?.classList.remove("hidden");
   document.getElementById("connections-list")?.classList.remove("is-walkthrough-preview");
   document.getElementById("connections-modal-hint").textContent =
     "Link accounts to import events and publish — unlocked as you review drafts and earn trust.";
+}
+
+function showWalkthroughDone() {
+  walkthroughDoneActive = true;
+  walkthroughWelcomeActive = false;
+  walkthroughPaused = false;
+  removeWalkthroughCompanion();
+  clearWalkthroughHighlight();
+  closeMobileMenu();
+  const root = document.getElementById("walkthrough");
+  root?.classList.remove("hidden");
+  root?.setAttribute("aria-hidden", "false");
+  walkthroughActive = true;
+  lockWalkthroughScroll();
+  renderWalkthroughPanel();
+}
+
+async function dismissWalkthroughDone(action) {
+  walkthroughDoneActive = false;
+  hideWalkthroughOverlay();
+  if (action === "lens") {
+    await openLensModal();
+    return;
+  }
+  if (action === "event") {
+    openEventModal();
+  }
 }
 
 function removeWalkthroughCompanion() {
@@ -2070,6 +2265,7 @@ function enterWalkthroughCompanion(mode) {
   if (!walkthroughActive) return;
   walkthroughPaused = true;
   clearWalkthroughHighlight();
+  unlockWalkthroughScroll();
   document.getElementById("walkthrough")?.classList.add("hidden");
   injectWalkthroughCompanion(mode);
 }
@@ -2077,6 +2273,9 @@ function enterWalkthroughCompanion(mode) {
 function exitWalkthroughCompanion() {
   removeWalkthroughCompanion();
   walkthroughPaused = false;
+  if (walkthroughActive && isMobileTour() && !walkthroughDoneActive) {
+    lockWalkthroughScroll();
+  }
 }
 
 function isWalkthroughModalOpen(id) {
@@ -2112,7 +2311,7 @@ function resumeWalkthroughAfterModal() {
   if (!walkthroughActive) return;
   exitWalkthroughCompanion();
   document.getElementById("walkthrough")?.classList.remove("hidden");
-  showWalkthroughOverlay();
+  renderWalkthroughPanel();
 }
 
 async function advanceWalkthroughStep(nextStep, nextLoopSub = 0) {
@@ -2130,6 +2329,13 @@ async function advanceWalkthroughStep(nextStep, nextLoopSub = 0) {
 
 async function completeWalkthrough(options = {}) {
   removeWalkthroughCompanion();
+  if (!options.silent && !options.skipDone) {
+    if (!options.silent) {
+      await saveWalkthroughState({ completed: true, step: WALKTHROUGH_STEPS.length, loopSubStep: 0 });
+    }
+    showWalkthroughDone();
+    return;
+  }
   hideWalkthroughOverlay();
   if (!options.silent) {
     await saveWalkthroughState({ completed: true, step: WALKTHROUGH_STEPS.length, loopSubStep: 0 });
@@ -2143,6 +2349,13 @@ async function skipWalkthrough() {
 }
 
 async function handleWalkthroughPrimary() {
+  if (walkthroughWelcomeActive) {
+    walkthroughWelcomeActive = false;
+    renderWalkthroughPanel();
+    return;
+  }
+  if (walkthroughDoneActive) return;
+
   const step = WALKTHROUGH_STEPS[walkthroughStep];
   if (!step) return;
 
@@ -2194,6 +2407,7 @@ function maybeStartWalkthrough(d, force = false) {
   const forceTour = force || wantsTour();
   if (!forceTour && !d.showOnboarding) return;
   if (walkthroughActive && !forceTour) return;
+  if (!forceTour && getActiveMainView() === "session") return;
   walkthroughStep = forceTour ? 0 : (d.onboarding?.step ?? 0);
   walkthroughLoopSub = forceTour ? 0 : (d.onboarding?.loopSubStep ?? 0);
   if (walkthroughStep >= WALKTHROUGH_STEPS.length && !forceTour) return;
@@ -2213,6 +2427,7 @@ function maybeStartWalkthrough(d, force = false) {
 async function replayWalkthrough() {
   walkthroughStep = 0;
   walkthroughLoopSub = 0;
+  walkthroughDoneActive = false;
   await saveWalkthroughState({ completed: false, skipped: false, explicit: false, step: 0, loopSubStep: 0 });
   if (!dashboardData) {
     dashboardData = buildFallbackDashboardData();
@@ -4924,7 +5139,7 @@ function setSidebarNavActive(nav) {
 }
 
 async function ensureDashboardData() {
-  dashboardData = await fetchJson("/api/dashboard");
+  await fetchDashboardData();
   window._actions = dashboardData.actions;
   window._allActions = dashboardData.allActions ?? dashboardData.actions;
   renderSidebarUser(dashboardData);
@@ -5297,8 +5512,30 @@ document.getElementById("walkthrough-secondary")?.addEventListener("click", () =
 document.getElementById("walkthrough-skip")?.addEventListener("click", () => {
   skipWalkthrough().catch((err) => alert(err.message ?? "Could not skip tour"));
 });
-window.addEventListener("resize", repositionWalkthroughHighlight);
-window.addEventListener("scroll", repositionWalkthroughHighlight, true);
+window.addEventListener("resize", () => {
+  if (
+    walkthroughActive &&
+    !walkthroughPaused &&
+    !walkthroughWelcomeActive &&
+    !walkthroughDoneActive
+  ) {
+    repositionWalkthroughHighlight();
+  }
+});
+window.addEventListener(
+  "scroll",
+  () => {
+    if (!isMobileTour()) repositionWalkthroughHighlight();
+  },
+  true
+);
+
+document.getElementById("walkthrough-done-lens")?.addEventListener("click", () => {
+  dismissWalkthroughDone("lens").catch((err) => alert(err.message ?? "Could not open lens"));
+});
+document.getElementById("walkthrough-done-event")?.addEventListener("click", () => {
+  dismissWalkthroughDone("event").catch((err) => alert(err.message ?? "Could not open event form"));
+});
 
 document.getElementById("modal-lens")?.addEventListener("close", () => {
   if (walkthroughTransitioning) return;

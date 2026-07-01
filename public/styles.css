@@ -5400,6 +5400,49 @@ textarea.flow-row-detail::placeholder {
   background: var(--accent);
 }
 
+.walkthrough.is-welcome .walkthrough-highlight,
+.walkthrough.is-done .walkthrough-highlight {
+  display: none !important;
+}
+
+.walkthrough-done-actions {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.walkthrough-done-actions .btn {
+  width: 100%;
+  min-height: 48px;
+  justify-content: center;
+}
+
+body.walkthrough-scroll-lock {
+  overflow: hidden;
+  touch-action: none;
+}
+
+.walkthrough.is-mobile-tour .walkthrough-panel.is-docked,
+.walkthrough.is-mobile-tour .walkthrough-panel {
+  left: var(--layout-gutter);
+  right: var(--layout-gutter);
+  bottom: calc(16px + env(safe-area-inset-bottom, 0));
+  top: auto;
+  width: auto;
+  max-width: none;
+  transform: none;
+  max-height: min(52vh, 420px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.walkthrough.is-mobile-tour .walkthrough-highlight {
+  box-shadow:
+    0 0 0 9999px rgba(28, 25, 23, 0.42),
+    0 0 0 2px var(--accent),
+    0 8px 24px rgba(0, 0, 0, 0.14);
+}
+
 .tour-companion {
   margin: 0 24px 12px;
   padding: 14px 16px 12px;
