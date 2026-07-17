@@ -16,6 +16,12 @@ Return an **integer score from 1 to 5** for each dimension (5 = excellent, 3 = a
 - Top 3 specific edits (not vague "make it better")
 - Sentences that should be cut or need a citation
 
+## Hard penalties (nonObviousness / voice)
+
+Score **nonObviousness ≤ 2** if the draft opens with attending an event, venue name-drop, or panelist laundry list.
+Score **nonObviousness ≤ 2** if there is no clear belief shift or portable heuristic (wedge).
+Score **voice ≤ 2** if it reads like generic LinkedIn AI ("excited to share", emoji, soft "thoughts?" CTA).
+
 ---
 
 Return JSON:

@@ -42,14 +42,14 @@
       }
     },
     "nonObviousness": {
-      "description": "Adds insight beyond restating event content",
+      "description": "Adds insight beyond restating event content — belief shift, portable heuristic, no recap opener",
       "scale": "1-5",
       "thresholds": { "pass": 3, "excellent": 5 },
       "scoringGuide": {
-        "5": "Surprising connection or implication",
-        "4": "Solid reframing beyond recap",
+        "5": "Surprising connection or implication; clear belief-shift wedge",
+        "4": "Solid reframing beyond recap; practical takeaway",
         "3": "Mostly recap with light commentary",
-        "2": "Generic event summary with minimal insight",
+        "2": "Event summary, venue/panelist opener, or no wedge",
         "1": "Event summary only"
       }
     }

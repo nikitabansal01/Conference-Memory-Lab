@@ -3133,7 +3133,7 @@ function renderTakeawayCard(text) {
 }
 
 const ANALYZE_TAKEAWAYS_TOOLTIP =
-  "Uses your Unique Lens, the event description, speaker info, your notes, and any uploaded photos, audio, or video.";
+  "Uses your Unique Lens, event page (if linked), transcript, raw notes, organized notes, and media captions. Photos are not vision-read — add a caption if the photo matters.";
 
 const attendCollapseBySession = new Map();
 

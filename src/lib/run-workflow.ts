@@ -201,10 +201,7 @@ export async function runSessionWorkflow(
     );
   }
 
-  const profile =
-    workflow === "extract" || workflow === "organize-transcript"
-      ? null
-      : await loadProfileOrExample(userId);
+  const profile = workflow === "organize-transcript" ? null : await loadProfileOrExample(userId);
   const bundle = await buildWorkflowPrompt(workflow, session, profile, userLevel);
 
   const userPrompt = [

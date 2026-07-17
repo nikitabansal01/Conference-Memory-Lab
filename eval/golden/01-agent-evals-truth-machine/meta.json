@@ -1,0 +1,24 @@
+{
+  "id": "01-agent-evals-truth-machine",
+  "eventTitle": "Agent Evals: The Truth Machine w/ Composio, Braintrust, Fireworks, and Replit",
+  "venue": "Notion HQ, SF",
+  "panelists": [
+    { "name": "Ankur", "company": "Braintrust", "role": "evals / observability" },
+    { "name": "Zhen Li", "company": "Replit", "role": "engineering lead; first Replit Agent" },
+    { "name": "Dima", "company": "Fireworks AI", "role": "open-source inference / fine-tune" },
+    { "name": "Sylvain", "company": "Composio", "role": "co-founder; agent integrations" }
+  ],
+  "userLensHints": [
+    "PM building AI products",
+    "LLM evaluation frameworks",
+    "agentic workflows",
+    "trust and transparency",
+    "healthcare / regulated workflows"
+  ],
+  "sources": {
+    "transcript": "transcript.md",
+    "rawNotes": "raw-notes.md",
+    "goldTakeaways": "gold-takeaways.md",
+    "qualityRubric": "quality-rubric.md"
+  }
+}

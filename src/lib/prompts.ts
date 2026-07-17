@@ -67,12 +67,19 @@ function formatSessionContext(session: EventSession, workflow: WorkflowName): st
     eventTranscript: session.eventTranscript,
     organizedNotes: session.organizedNotes,
     screenshotDescriptions: session.screenshotDescriptions,
+    mediaCaptures: (session.captures ?? []).map((c) => ({
+      kind: c.kind,
+      originalName: c.originalName,
+      caption: c.caption ?? null,
+      // Images/audio/video bytes are not sent to the model — captions are.
+    })),
     people: session.people,
     interactions: session.interactions,
     claims: session.claims,
     themes: session.themes,
     assumptionChallenges: session.assumptionChallenges,
     contentAngles: session.contentAngles,
+    matteredLine: session.matteredLine,
   };
 
   if (workflow === "draft" || workflow === "self-critique") {
@@ -107,14 +114,17 @@ export async function buildWorkflowPrompt(
     );
   }
 
-  if (workflow !== "extract" && workflow !== "organize-transcript" && !profile) {
+  if (workflow !== "organize-transcript" && !profile) {
     throw new Error(
       "Profile required. Copy profile/profile.example.json to profile/profile.json and customize."
     );
   }
 
   const template = await readFile(join(WORKFLOWS_DIR, WORKFLOW_FILES[workflow]), "utf-8");
-  const resume = profile && workflow !== "extract" ? await loadResume() : null;
+  const resume =
+    profile && workflow !== "extract" && workflow !== "organize-transcript"
+      ? await loadResume()
+      : null;
   const rubric =
     workflow === "self-critique"
       ? await readFile(
@@ -123,30 +133,61 @@ export async function buildWorkflowPrompt(
         )
       : null;
 
+  const extractFocus =
+    workflow === "extract"
+      ? "\n## Remember focus\n" +
+        "Input priority: (1) eventTranscript if present, (2) rawNotes as attention signal, (3) organizedNotes, " +
+        "(4) eventPageContext for speakers/topics, (5) mediaCaptures captions + screenshotDescriptions. " +
+        "Use the expertise profile to decide what THIS user might have missed — prioritize their learning goals and ongoing projects. " +
+        "Prefer portable heuristics over recap. Reject speaker bios and slide-title claims.\n"
+      : "";
   const draftFocus =
     workflow === "draft"
       ? "\n## Create focus\n" +
-        "Match the user's voice using `pastPostExamples`, `voiceTraits`, and `avoidPatterns` in the expertise profile. " +
+        "Write like a post the user would publish: belief-shift opener, one wedge, teachable structure, practical closer. " +
+        "Never open with attending an event or listing panelists. " +
+        "Use `matteredLine` as the primary wedge when present. " +
+        "Match `pastPostExamples`, `voiceTraits`, and `avoidPatterns`. " +
         "If `selectedThemeIds` is set, only draft for those themes. " +
         "If exactly 1 theme is selected, return 2 distinct LinkedIn drafts (different hooks). " +
         "If 2+ themes are selected, return 1 draft per theme.\n"
       : "";
   const reviewFocus =
     workflow === "self-critique"
-      ? "\n## Review focus\nReturn `evalScores` with an integer **1–5 score** and a one-sentence justification per dimension. Use the full scale — reserve 5 for excellent drafts and 1–2 for serious issues.\n"
+      ? "\n## Review focus\nReturn `evalScores` with an integer **1–5 score** and a one-sentence justification per dimension. Use the full scale — reserve 5 for excellent drafts and 1–2 for serious issues. Heavily penalize event-recap openers and missing wedge.\n"
       : "";
-
   const learningsBlock =
-    profile && (workflow === "synthesize" || workflow === "draft" || workflow === "self-critique")
+    profile &&
+    (workflow === "extract" ||
+      workflow === "synthesize" ||
+      workflow === "draft" ||
+      workflow === "self-critique")
       ? formatLearningsForPrompt(profile)
       : "";
+
+  // For extract, pass a lean lens (not full resume) so takeaways are user-important.
+  const profileForPrompt =
+    profile && workflow === "extract"
+      ? {
+          name: profile.name,
+          tagline: profile.tagline,
+          currentRole: profile.currentRole,
+          expertiseAreas: profile.expertiseAreas,
+          contentPriorities: profile.contentPriorities,
+          assumptionPatterns: profile.assumptionPatterns,
+          industries: profile.industries,
+        }
+      : profile;
 
   const userContext = [
     "## Event session",
     formatSessionContext(session, workflow),
+    extractFocus,
     draftFocus,
     reviewFocus,
-    profile ? "\n## Expertise profile\n" + formatProfile(profile) : "",
+    profileForPrompt
+      ? "\n## Expertise profile\n" + formatProfile(profileForPrompt as ExpertiseProfile)
+      : "",
     learningsBlock ? "\n" + learningsBlock : "",
     resume && workflow !== "draft" ? "\n## Resume (professional context)\n" + resume : "",
     rubric ? "\n## Eval rubrics\n" + rubric : "",
